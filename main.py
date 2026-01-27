@@ -368,4 +368,11 @@ async def on_command_error(ctx, error):
         except Exception:
             pass
 
-bot.run(os.getenv("TOKEN"))
+token = os.getenv("TOKEN")
+if not token:
+    raise RuntimeError(
+        "Environment variable TOKEN is not set or is empty. "
+        "Create a .env file next to main.py with a line like: TOKEN=your_discord_bot_token_here"
+    )
+
+bot.run(token)
