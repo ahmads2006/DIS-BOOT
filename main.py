@@ -5,10 +5,27 @@ import os
 import time
 import random
 
-TOKEN = os.getenv("TOKEN")
+def _load_env_file(path: str) -> None:
+    """
+    Minimal .env loader (KEY=VALUE per line).
+    - Ignores empty lines and comments (# ...)
+    - Does not override existing environment variables
+    """
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            for raw in f:
+                line = raw.strip()
+                if not line or line.startswith("#") or "=" not in line:
+                    continue
+                k, v = line.split("=", 1)
+                k = k.strip()
+                v = v.strip().strip('"').strip("'")
+                if k and k not in os.environ:
+                    os.environ[k] = v
+    except FileNotFoundError:
+        return
 
-if not TOKEN:
-    raise ValueError("TOKEN is not set in environment variables")
+_load_env_file(os.path.join(os.path.dirname(__file__), ".env"))
 
 
 from DATA import get_random_questions  # استيراد الأسئلة العشوائية من ملف DATA
@@ -373,10 +390,10 @@ async def on_command_error(ctx, error):
         except Exception:
             pass
 
-token = os.getenv("TOKEN")
+token = os.getenv("DISCORD_TOKEN")
 if not token:
     raise RuntimeError(
-        "Environment variable TOKEN is not set or is empty. "
+        "Environment variable DISCORD_TOKEN is not set or is empty. "
         "Create a .env file next to main.py with a line like: DISCORD_TOKEN=your_discord_bot_token_here"
     )
 
