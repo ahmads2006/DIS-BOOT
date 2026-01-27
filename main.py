@@ -1,14 +1,19 @@
 import discord
 from discord.ext import commands
 from discord.ui import View, Button
-from dotenv import load_dotenv
 import os
 import time
 import random
 
+TOKEN = os.getenv("DISCORD_TOKEN")
+
+if not TOKEN:
+    raise ValueError("DISCORD_TOKEN is not set in environment variables")
+
+
 from DATA import get_random_questions  # استيراد الأسئلة العشوائية من ملف DATA
 
-load_dotenv()
+
 
 intents = discord.Intents.all()
 
