@@ -390,10 +390,11 @@ async def on_command_error(ctx, error):
         except Exception:
             pass
 
-token = os.getenv("DISCORD_TOKEN")
+# دعم كلا الاسمين للتوافق مع Railway والأنظمة الأخرى
+token = os.getenv("DISCORD_TOKEN") or os.getenv("TOKEN")
 if not token:
     raise RuntimeError(
-        "Environment variable DISCORD_TOKEN is not set or is empty. "
+        "Environment variable DISCORD_TOKEN or TOKEN is not set or is empty. "
         "Create a .env file next to main.py with a line like: DISCORD_TOKEN=your_discord_bot_token_here"
     )
 
