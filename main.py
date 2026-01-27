@@ -5,10 +5,10 @@ import os
 import time
 import random
 
-TOKEN = os.getenv("DISCORD_TOKEN")
+TOKEN = os.getenv("TOKEN")
 
 if not TOKEN:
-    raise ValueError("DISCORD_TOKEN is not set in environment variables")
+    raise ValueError("TOKEN is not set in environment variables")
 
 
 from DATA import get_random_questions  # استيراد الأسئلة العشوائية من ملف DATA
@@ -377,7 +377,7 @@ token = os.getenv("TOKEN")
 if not token:
     raise RuntimeError(
         "Environment variable TOKEN is not set or is empty. "
-        "Create a .env file next to main.py with a line like: TOKEN=your_discord_bot_token_here"
+        "Create a .env file next to main.py with a line like: DISCORD_TOKEN=your_discord_bot_token_here"
     )
 
 bot.run(token)
