@@ -9,10 +9,10 @@ from views.exam_select import ExamSelectView
 from core.state import active_exams
 from core.cooldowns import COOLDOWN
 from core.exam_engine import start_exam_core   
-GUILD_ID = int(os.getenv("GUILD_ID") or "0")  # ضع هنا معرف السيرفر الخاص بك للاختبار التجريبي
+GUILD_ID = int(os.getenv("GUILD_ID") or "1464310306892415129")  # ضع هنا معرف السيرفر الخاص بك للاختبار التجريبي
 
 #ِِشغل API في خيط منفصل
-from api import app
+from api.api import app
 import threading
 
 def run_api():
@@ -396,6 +396,12 @@ async def on_command_error(ctx, error):
             await ctx.send("❌ حدث خطأ أثناء تنفيذ الأمر.")
         except Exception:
             pass
+
+# ======================
+@bot.event
+async def on_ready():
+    await bot.tree.sync()
+
 
 # دعم كلا الاسمين للتوافق مع Railway والأنظمة الأخرى
 token = os.getenv("DISCORD_TOKEN") or os.getenv("TOKEN")
