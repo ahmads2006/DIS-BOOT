@@ -1,0 +1,24 @@
+[2026-09-05 17:54:57] [WARNING] [discord_bot]: ⚠️ Supabase returned status 401: {"message":"Invalid API key","hint":"Double check the provided API key for typos. This API key might also be owned by another Supabase project."}. Falling back to In-Memory mode.
+[2026-09-05 17:58:07] [WARNING] [discord_bot]: ⚠️ Could not connect to Supabase PostgreSQL: prepared statement "__asyncpg_stmt_1__" already exists
+HINT:  
+NOTE: pgbouncer with pool_mode set to "transaction" or
+"statement" does not support prepared statements properly.
+You have two options:
+
+* if you are using pgbouncer for connection pooling to a
+  single server, switch to the connection pool functionality
+  provided by asyncpg, it is a much better option for this
+  purpose;
+
+* if you have no option of avoiding the use of pgbouncer,
+  then you can set statement_cache_size to 0 when creating
+  the asyncpg connection object.
+. Running in In-Memory mode.
+[2026-09-05 17:58:07] [INFO] [discord_bot]: Database connection pool closed.
+[2026-09-05 17:58:17] [INFO] [discord_bot]: ✅ Connected to Supabase PostgreSQL database successfully!
+[2026-09-05 17:58:17] [INFO] [discord_bot]: Saved cooldown to Supabase: user=999999, role=frontend, expires_in=3600s
+[2026-09-05 17:58:18] [INFO] [discord_bot]: Deleted cooldown from Supabase for user 999999 (Rows: 1)
+[2026-09-05 17:58:18] [INFO] [discord_bot]: Recorded exam to Supabase: user=999999, role=frontend, passed=True
+[2026-09-05 17:58:19] [INFO] [discord_bot]: Database connection pool closed.
+[2026-09-05 17:58:24] [INFO] [discord_bot]: ✅ Connected to Supabase PostgreSQL database successfully!
+[2026-09-05 17:58:24] [INFO] [discord_bot]: Database connection pool closed.
