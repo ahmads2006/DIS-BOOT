@@ -23,7 +23,7 @@ TOKEN = os.getenv("DISCORD_TOKEN") or os.getenv("TOKEN", "")
 GUILD_ID = int(os.getenv("GUILD_ID") or "0")  # 0 يعني المزامنة العامة، أو معرف السيرفر للمزامنة السريعة
 
 # إعدادات الرتب والقنوات
-PUBLIC_LOG_CHANNEL_NAME = os.getenv("LOG_CHANNEL", "exam-log")
+PUBLIC_LOG_CHANNEL_NAME = os.getenv("LOG_CHANNEL", "╔〖💬┇〢general・chat")
 
 RULES_ACCEPTED_ROLE_NAMES = [
     "✔ Rules Accepted",
@@ -34,15 +34,16 @@ RULES_ACCEPTED_ROLE_NAMES = [
     "مفعل",
 ]
 
+# خريطة الرتب مطابقة تماماً لرتب السيرفر
 ROLE_MAP = {
     "frontend": "🎨 | Frontend Developer",
-    "backend": "⚙️| Backend Developer",
+    "backend": "🔧 | Backend Developer",
     "solutions_architect": "🏗️ | Solutions Architect",
     "system_architect": "🖥️ | System Architect",
     "security_engineer": "🛡️ |Security Engineer",
     "software_engineer": "💻 | Software Engineer",
     "fullstack_developer": "⚙️ | Full-Stack Developer",
-    "mobile_developer": "📱 Mobile Developer",
+    "mobile_developer": "📱 | Mobile Developer",
     "junior_developer": "📝 | Junior Developer",
 }
 

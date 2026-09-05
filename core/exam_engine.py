@@ -15,10 +15,76 @@ from core.database import db
 from core.logger import log
 from DATA import get_random_questions
 
+
+def find_role_smart(guild: discord.Guild, role_key: str) -> Optional[discord.Role]:
+    """
+    البحث الذكي عن الرتبة في السيرفر مع مراعاة الإيموجي والمسافات والرموز الزخرفية.
+    """
+    configured_name = ROLE_MAP.get(role_key, "")
+    
+    # 1. مطابقة بالاسم المضبوط من الكونفيج
+    if configured_name:
+        role = discord.utils.get(guild.roles, name=configured_name)
+        if role:
+            return role
+
+    # 2. كلمات مفتاحية لكل مسار للبحث المرن في حال تغيّر الإيموجي
+    keywords_map = {
+        "frontend": ["frontend", "front-end", "فرونت"],
+        "backend": ["backend", "back-end", "باك"],
+        "fullstack_developer": ["full-stack", "fullstack", "full stack", "فول ستاك"],
+        "mobile_developer": ["mobile", "موبايل"],
+        "software_engineer": ["software engineer", "software", "برمجيات"],
+        "security_engineer": ["security", "أمن", "حماية"],
+        "solutions_architect": ["solutions architect", "solution", "حلول"],
+        "system_architect": ["system architect", "system", "نظم"],
+        "junior_developer": ["junior", "مبتدئ"],
+    }
+
+    keywords = keywords_map.get(role_key, [role_key.replace("_", " ")])
+    for r in guild.roles:
+        r_clean = r.name.lower()
+        for kw in keywords:
+            if kw in r_clean:
+                return r
+
+    return None
+
+
+def find_announcement_channel(guild: discord.Guild) -> Optional[discord.TextChannel]:
+    """
+    البحث الذكي عن روم الشات العام / الإعلانات لإرسال بطاقة الإنجاز.
+    """
+    preferred_names = [
+        PUBLIC_LOG_CHANNEL_NAME,
+        "╔〖💬┇〢general・chat",
+        "general・chat",
+        "general-chat",
+        "general_chat",
+        "general",
+        "عام",
+        "شات-عام",
+        "chat"
+    ]
+
+    # 1. فحص الأسماء المباشرة
+    for name in preferred_names:
+        ch = discord.utils.get(guild.text_channels, name=name)
+        if ch:
+            return ch
+
+    # 2. فحص مرن لأي قناة تحتوي على general أو chat أو عام
+    for ch in guild.text_channels:
+        ch_name = ch.name.lower()
+        if "general" in ch_name or "chat" in ch_name or "عام" in ch_name:
+            return ch
+
+    return None
+
+
 async def start_exam_core(bot: discord.Client, user: discord.User, guild_id: int, role_key: str, lang: str = "ar") -> Tuple[str, Any]:
     """
     بدء اختبار جديد للمستخدم.
-    ترجع Tuple مثل ("ok", dm_channel) أو ("cooldown", hours) أو ("already_active",) إلخ.
     """
     if user.id in active_exams:
         return ("already_active",)
@@ -42,7 +108,7 @@ async def start_exam_core(bot: discord.Client, user: discord.User, guild_id: int
         log.warning(f"DMs are closed for user {user.name} ({user.id})")
         return ("dm_forbidden",)
 
-    # حفظ حالة الاختبار (مع قائمة لتتبع رسائل DM لحذفها لاحقاً)
+    # حفظ حالة الاختبار
     active_exams[user.id] = {
         "role": role_key,
         "guild_id": guild_id,
@@ -52,7 +118,7 @@ async def start_exam_core(bot: discord.Client, user: discord.User, guild_id: int
         "start_time": time.time(),
         "lang": lang,
         "current_message_id": None,
-        "dm_message_ids": [],  # تتبع كل رسائل الاختبار في DM لحذفها بعد الانتهاء
+        "dm_message_ids": [],
     }
 
     log.info(f"Exam started: user={user.name} ({user.id}), role={role_key}")
@@ -61,7 +127,7 @@ async def start_exam_core(bot: discord.Client, user: discord.User, guild_id: int
 
 async def send_next_question(bot: discord.Client, user: discord.User, dm_channel: discord.DMChannel):
     """
-    إرسال السؤال التالي للمستخدم مع أزرار الخيارات.
+    إرسال السؤال التالي للمستخدم بتصميم عصري وأنيق وفائق الوضوح.
     """
     exam = active_exams.get(user.id)
     if not exam:
@@ -73,20 +139,42 @@ async def send_next_question(bot: discord.Client, user: discord.User, dm_channel
     total = len(exam["selected_questions"])
     q_data = exam["selected_questions"][current_idx]
 
-    embed = discord.Embed(
-        title=f"📝 السؤال {current_idx + 1} من {total}",
-        description=f"**{q_data['q']}**",
-        color=discord.Color.blue()
-    )
+    # شريط التقدم الرسومي
+    filled = int(((current_idx + 1) / total) * 8)
+    progress_bar = "▰" * filled + "▱" * (8 - filled)
+    percent = int(((current_idx + 1) / total) * 100)
 
-    choices_text = "\n".join([f"**{k}** : {v}" for k, v in q_data["c"].items()])
-    embed.add_field(name="الخيارات:", value=choices_text, inline=False)
-    embed.set_footer(text=f"⏰ الوقت المتاح: {QUESTION_TIMEOUT_SECONDS} ثانية")
+    # تنسيق الخيارات بشكل بطاقات منظمة
+    opt_a = q_data["c"].get("A", "")
+    opt_b = q_data["c"].get("B", "")
+    opt_c = q_data["c"].get("C", "")
+    opt_d = q_data["c"].get("D", "")
+
+    embed = discord.Embed(
+        title=f"📝 السؤال {current_idx + 1} من {total} • Technical Assessment",
+        description=(
+            f"📊 **مستوى التقدم:** `[{progress_bar}] {percent}%`\n\n"
+            f"```fix\n"
+            f"❓ {q_data['q']}\n"
+            f"```\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"### 📋 الخيارات المتاحة:\n\n"
+            f"> **🇦 [ A ]** ╶─╶ `{opt_a}`\n\n"
+            f"> **🇧 [ B ]** ╶─╶ `{opt_b}`\n\n"
+            f"> **🇨 [ C ]** ╶─╶ `{opt_c}`\n\n"
+            f"> **🇩 [ D ]** ╶─╶ `{opt_d}`\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        ),
+        color=discord.Color.from_rgb(88, 101, 242)
+    )
+    embed.set_footer(
+        text=f"⏰ الوقت المتاح: {QUESTION_TIMEOUT_SECONDS} ثانية • اضغط على الزر المطابق لإجابتك أدناه ⬇️"
+    )
 
     view = QuestionView(bot=bot, user=user, timeout_seconds=QUESTION_TIMEOUT_SECONDS)
     msg = await dm_channel.send(embed=embed, view=view)
     exam["current_message_id"] = msg.id
-    exam["dm_message_ids"].append(msg.id)  # تتبع الرسالة
+    exam["dm_message_ids"].append(msg.id)
 
 
 async def process_answer(bot: discord.Client, user: discord.User, chosen_choice: str, interaction: discord.Interaction):
@@ -111,11 +199,8 @@ async def process_answer(bot: discord.Client, user: discord.User, chosen_choice:
     if exam["index"] < len(exam["selected_questions"]):
         await send_next_question(bot, user, user.dm_channel or await user.create_dm())
     else:
-        # انتهت كل الأسئلة - تقييم النتيجة
         total = len(exam["selected_questions"])
         passed = (exam["score"] == total)
-        role_key = exam["role"]
-        lang = exam.get("lang", "ar")
 
         if passed:
             await handle_exam_success(bot, user, exam)
@@ -125,17 +210,16 @@ async def process_answer(bot: discord.Client, user: discord.User, chosen_choice:
 
 async def _cleanup_dm_messages(user: discord.User, message_ids: list):
     """
-    حذف جميع رسائل الاختبار من DM بعد فترة قصيرة.
-    ينتظر 30 ثانية ليقرأ المستخدم النتيجة ثم يحذف كل شيء.
+    حذف جميع رسائل الاختبار من DM بعد 30 ثانية لتنظيف المحادثة.
     """
     try:
-        await asyncio.sleep(30)  # ينتظر 30 ثانية ليقرأ المستخدم النتيجة
+        await asyncio.sleep(30)
         dm = await user.create_dm()
         for msg_id in message_ids:
             try:
                 msg = await dm.fetch_message(msg_id)
                 await msg.delete()
-                await asyncio.sleep(0.5)  # تجنب rate limit
+                await asyncio.sleep(0.4)
             except (discord.NotFound, discord.Forbidden, discord.HTTPException):
                 pass
         log.info(f"Cleaned up {len(message_ids)} exam DM messages for {user.name}")
@@ -145,7 +229,7 @@ async def _cleanup_dm_messages(user: discord.User, message_ids: list):
 
 async def handle_exam_success(bot: discord.Client, user: discord.User, exam: dict):
     """
-    منح الرتبة، إرسال إشعار في القناة العامة، وتوثيق النجاح.
+    منح الرتبة فعلياً وإرسال بطاقة الإنجاز المزخرفة في روم الشات العام (general-chat).
     """
     role_key = exam["role"]
     guild_id = exam["guild_id"]
@@ -153,58 +237,91 @@ async def handle_exam_success(bot: discord.Client, user: discord.User, exam: dic
     copy = ONBOARDING_COPY.get(lang, ONBOARDING_COPY["ar"])
     dm_message_ids = list(exam.get("dm_message_ids", []))
 
-    role_name = ROLE_MAP.get(role_key, role_key)
     guild = bot.get_guild(guild_id)
+    role_obj = None
+    role_name = ROLE_MAP.get(role_key, role_key)
 
-    role_assigned = False
     if guild:
-        member = guild.get_member(user.id)
-        role_obj = discord.utils.get(guild.roles, name=role_name)
+        # 1. البحث الذكي عن الرتبة وإسنادها للمستخدم
+        role_obj = find_role_smart(guild, role_key)
+        if role_obj:
+            role_name = role_obj.name
+            member = guild.get_member(user.id)
+            if member:
+                bot_member = guild.get_member(bot.user.id)
+                if bot_member and bot_member.top_role > role_obj:
+                    try:
+                        await member.add_roles(role_obj, reason="اجتياز الاختبار التقني بنجاح")
+                        log.info(f"Successfully granted role '{role_obj.name}' to {user.name}")
+                    except discord.Forbidden:
+                        log.error(f"Missing permissions to grant role '{role_obj.name}' to {user.name}")
+                    except Exception as e:
+                        log.error(f"Failed to add role '{role_obj.name}' to {user.name}: {e}")
+                else:
+                    log.warning(f"Bot role hierarchy is lower than '{role_obj.name}' in guild {guild.name}")
+        else:
+            log.warning(f"Could not find role matching '{role_key}' in guild {guild.name}")
 
-        if member and role_obj:
-            # التحقق من هرمية الرتب (Bot Role Hierarchy Safety)
-            bot_member = guild.get_member(bot.user.id)
-            if bot_member and bot_member.top_role > role_obj:
-                try:
-                    await member.add_roles(role_obj)
-                    role_assigned = True
-                    log.info(f"Role '{role_name}' granted to {user.name}")
-                except Exception as e:
-                    log.error(f"Failed to add role '{role_name}' to {user.name}: {e}")
-            else:
-                log.warning(f"Bot role is lower than target role '{role_name}' in guild {guild.name}")
-
-        # إشعار في قناة الإعلانات
-        log_channel = discord.utils.get(guild.text_channels, name=PUBLIC_LOG_CHANNEL_NAME)
-        if log_channel:
+        # 2. إرسال بطاقة التهنئة المزخرفة في روم الشات العام
+        general_channel = find_announcement_channel(guild)
+        if general_channel:
             try:
-                announcement = discord.Embed(
-                    title="🎉 مبروك! إنجاز جديد في السيرفر",
-                    description=f"تهانينا لـ {user.mention}! لقد اجتاز الاختبار التقني بنجاح وأصبح الآن **{role_name}** 🚀",
-                    color=discord.Color.green()
+                role_display = role_obj.mention if role_obj else f"**{role_name}**"
+                
+                # بطاقة إنجاز مزخرفة وجميلة جداً
+                cert_embed = discord.Embed(
+                    title="🏆 شهادة اعتماد برمجية | Verified Certification",
+                    description=(
+                        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+                        f"🎉 **نبارك للمبدع {user.mention} اجتيازه الاختبار التقني بنجاح تام!**\n\n"
+                        f"🏷️ **الرتبة الممنوحة:** {role_display}\n"
+                        f"📊 **النتيجة:** `{exam['score']}/{len(exam['selected_questions'])}` (علامة كاملة 100% ⭐)\n"
+                        f"🏅 **الحالة:** **مطور معتمد | Certified Developer** 🚀\n\n"
+                        f"> 💡 *تم تقييم المهارات التقنية واجتياز المعايير البرمجية بنجاح.* \n"
+                        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+                    ),
+                    color=discord.Color.from_rgb(46, 204, 113)  # أخضر زمردي جذاب
                 )
-                await log_channel.send(embed=announcement)
-            except Exception as e:
-                log.error(f"Error sending log to {PUBLIC_LOG_CHANNEL_NAME}: {e}")
+                
+                # إضافة صورة العضو وصورة السيرفر
+                user_avatar = user.display_avatar.url if hasattr(user, "display_avatar") else user.avatar.url if user.avatar else None
+                if user_avatar:
+                    cert_embed.set_thumbnail(url=user_avatar)
+                
+                guild_icon = guild.icon.url if guild.icon else None
+                if guild_icon:
+                    cert_embed.set_footer(text=f"{guild.name} • Technical Certification System", icon_url=guild_icon)
+                else:
+                    cert_embed.set_footer(text="Technical Certification System")
 
-    # إشعار المستخدم في الخاص
+                await general_channel.send(content=f"📣 تهانينا الحارة لـ {user.mention} بمناسبة ترقيته الجديدة!", embed=cert_embed)
+                log.info(f"Sent success announcement to channel {general_channel.name}")
+            except Exception as e:
+                log.error(f"Error sending certification announcement: {e}")
+
+    # 3. إرسال بطاقة النتيجة للمستخدم في الخاص
     result_msg = None
     try:
         success_embed = discord.Embed(
             title="🎉 نتيجة الاختبار: اجتياز كامل!",
-            description=f"{copy['success_dm']}\n\n**الرتبة الممنوحة:** {role_name}\n**الدرجة:** {exam['score']}/{len(exam['selected_questions'])}",
+            description=(
+                f"{copy['success_dm']}\n\n"
+                f"🏷️ **الرتبة الممنوحة:** **{role_name}**\n"
+                f"📊 **الدرجة:** `{exam['score']}/{len(exam['selected_questions'])}` (100%)\n\n"
+                f"✅ تم نشر بطاقة اعتمادك في الشات العام بالسيرفر."
+            ),
             color=discord.Color.green()
         )
-        success_embed.set_footer(text="⏳ سيتم حذف هذه المحادثة تلقائياً خلال 30 ثانية...")
+        success_embed.set_footer(text="⏳ سيتم تنظيف وحذف محادثة هذا الاختبار تلقائياً خلال 30 ثانية...")
         result_msg = await user.send(embed=success_embed)
     except Exception as e:
         log.warning(f"Could not send success DM to {user.name}: {e}")
 
-    # التوثيق والحذف من الذاكرة
+    # 4. التوثيق والحذف من الذاكرة
     await db.record_exam_attempt(user.id, role_key, exam["score"], passed=True)
     active_exams.pop(user.id, None)
 
-    # حذف رسائل الاختبار من DM بعد 30 ثانية
+    # 5. جدولة تنظيف رسائل الـ DM
     if result_msg:
         dm_message_ids.append(result_msg.id)
     asyncio.create_task(_cleanup_dm_messages(user, dm_message_ids))
@@ -212,7 +329,7 @@ async def handle_exam_success(bot: discord.Client, user: discord.User, exam: dic
 
 async def handle_exam_fail(bot: discord.Client, user: discord.User, exam: dict):
     """
-    تطبيق فترة الانتظار، إرسال رسالة توضيحية، وتوثيق المحاولة.
+    تطبيق فترة الانتظار، إرسال رسالة توضيحية، وجدولة حذف الرسائل.
     """
     role_key = exam["role"]
     lang = exam.get("lang", "ar")
@@ -227,17 +344,19 @@ async def handle_exam_fail(bot: discord.Client, user: discord.User, exam: dict):
     try:
         fail_embed = discord.Embed(
             title="📊 نتيجة الاختبار",
-            description=f"**النتيجة:** {exam['score']}/{len(exam['selected_questions'])}\n\n{copy['fail_dm']}",
+            description=(
+                f"**النتيجة:** `{exam['score']}/{len(exam['selected_questions'])}`\n\n"
+                f"{copy['fail_dm']}"
+            ),
             color=discord.Color.red()
         )
-        fail_embed.set_footer(text="⏳ سيتم حذف هذه المحادثة تلقائياً خلال 30 ثانية...")
+        fail_embed.set_footer(text="⏳ سيتم تنظيف وحذف محادثة هذا الاختبار تلقائياً خلال 30 ثانية...")
         result_msg = await user.send(embed=fail_embed)
     except Exception as e:
         log.warning(f"Could not send fail DM to {user.name}: {e}")
 
     active_exams.pop(user.id, None)
 
-    # حذف رسائل الاختبار من DM بعد 30 ثانية
     if result_msg:
         dm_message_ids.append(result_msg.id)
     asyncio.create_task(_cleanup_dm_messages(user, dm_message_ids))

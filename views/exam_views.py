@@ -9,19 +9,19 @@ from config import ONBOARDING_COPY
 # ──────────────────────────────────────────────────────
 
 SPECIALIZATIONS = [
-    {"label": "Frontend Developer",      "emoji": "🎨", "value": "frontend",             "description": "HTML, CSS, JavaScript, React, Vue..."},
-    {"label": "Backend Developer",        "emoji": "⚙️", "value": "backend",              "description": "Node.js, Python, Java, APIs, Databases..."},
-    {"label": "Full-Stack Developer",     "emoji": "🌐", "value": "fullstack_developer",  "description": "Frontend + Backend combined"},
-    {"label": "Mobile Developer",         "emoji": "📱", "value": "mobile_developer",     "description": "Android, iOS, Flutter, React Native..."},
-    {"label": "Software Engineer",        "emoji": "💻", "value": "software_engineer",    "description": "DSA, OOP, Design Patterns, Testing..."},
-    {"label": "Security Engineer",        "emoji": "🛡️", "value": "security_engineer",    "description": "Cybersecurity, Penetration Testing..."},
-    {"label": "Solutions Architect",      "emoji": "🏗️", "value": "solutions_architect",  "description": "Cloud Architecture, System Design..."},
-    {"label": "System Architect",         "emoji": "🖥️", "value": "system_architect",     "description": "Infrastructure, Networking, DevOps..."},
+    {"label": "Frontend Developer",      "emoji": "🎨", "value": "frontend",             "description": "HTML, CSS, JavaScript, React, UI/UX..."},
+    {"label": "Backend Developer",        "emoji": "🔧", "value": "backend",              "description": "Python, Node.js, Databases, APIs, Servers..."},
+    {"label": "Full-Stack Developer",     "emoji": "⚙️", "value": "fullstack_developer",  "description": "Frontend + Backend Combined Architecture"},
+    {"label": "Mobile Developer",         "emoji": "📱", "value": "mobile_developer",     "description": "Flutter, React Native, iOS, Android..."},
+    {"label": "Software Engineer",        "emoji": "💻", "value": "software_engineer",    "description": "Algorithms, Data Structures, OOP, System Core"},
+    {"label": "Security Engineer",        "emoji": "🛡️", "value": "security_engineer",    "description": "Cybersecurity, PenTesting, AppSec..."},
+    {"label": "Solutions Architect",      "emoji": "🏗️", "value": "solutions_architect",  "description": "Cloud Services, Scalability, High Availability"},
+    {"label": "System Architect",         "emoji": "🖥️", "value": "system_architect",     "description": "DevOps, CI/CD, Networking, Linux, Infra..."},
 ]
 
 
 class ExamSpecialtySelect(Select):
-    """قائمة منسدلة لاختيار التخصص البرمجي"""
+    """قائمة منسدلة أنيقة لاختيار التخصص البرمجي"""
     def __init__(self, bot: discord.Client, guild_id: int, lang: str = "ar"):
         options = [
             discord.SelectOption(
@@ -33,7 +33,7 @@ class ExamSpecialtySelect(Select):
             for spec in SPECIALIZATIONS
         ]
         super().__init__(
-            placeholder="🔽 اختر تخصصك البرمجي | Select your specialization",
+            placeholder="🔽 اختر تخصصك البرمجي لبدء الاختبار | Choose Path",
             min_values=1,
             max_values=1,
             options=options
@@ -57,10 +57,12 @@ class ExamSpecialtySelect(Select):
 
         if status == "ok":
             dm_channel = extra[0]
-            # تعطيل القائمة بعد الاختيار
             self.disabled = True
-            self.placeholder = f"✅ تم اختيار: {role_key}"
-            await interaction.edit_original_response(view=self.view)
+            self.placeholder = f"✅ تم تثبيت المسار: {role_key}"
+            try:
+                await interaction.edit_original_response(view=self.view)
+            except Exception:
+                pass
             await send_next_question(self.bot, interaction.user, dm_channel)
         elif status == "already_active":
             await interaction.followup.send(copy["active_exam_exists"])
@@ -74,18 +76,18 @@ class ExamSpecialtySelect(Select):
 
 
 class ExamSelectView(View):
-    """واجهة اختيار التخصص تحتوي على Select Menu"""
+    """واجهة اختيار التخصص تحتوي على Select Menu عصري"""
     def __init__(self, bot: discord.Client, guild_id: int, lang: str = "ar"):
         super().__init__(timeout=180)
         self.add_item(ExamSpecialtySelect(bot=bot, guild_id=guild_id, lang=lang))
 
 
 # ──────────────────────────────────────────────────────
-#  واجهة أزرار الأسئلة (A, B, C, D)
+#  واجهة أزرار الأسئلة (A, B, C, D) بتصميم عصري وأنيق
 # ──────────────────────────────────────────────────────
 
 class QuestionView(View):
-    """واجهة أزرار الخيارات (A, B, C, D) لكل سؤال في الاختبار"""
+    """واجهة أزرار الخيارات التفاعلية لكل سؤال"""
     def __init__(self, bot: discord.Client, user: discord.User, timeout_seconds: int = 60):
         super().__init__(timeout=timeout_seconds)
         self.bot = bot
@@ -95,9 +97,14 @@ class QuestionView(View):
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         return interaction.user.id == self.user.id
 
-    async def _disable_all(self, interaction: discord.Interaction):
+    async def _disable_all(self, interaction: discord.Interaction, selected_choice: str = ""):
         for child in self.children:
-            child.disabled = True
+            if isinstance(child, Button):
+                child.disabled = True
+                if child.label == selected_choice:
+                    child.style = discord.ButtonStyle.success
+                else:
+                    child.style = discord.ButtonStyle.secondary
         try:
             await interaction.response.edit_message(view=self)
         except Exception:
@@ -113,19 +120,19 @@ class QuestionView(View):
         if self.answered:
             return
         self.answered = True
-        await self._disable_all(interaction)
+        await self._disable_all(interaction, selected_choice=choice)
         await process_answer(self.bot, self.user, choice, interaction)
 
-    @discord.ui.button(label="A", style=discord.ButtonStyle.primary)
+    @discord.ui.button(label="A", emoji="🇦", style=discord.ButtonStyle.primary, row=0)
     async def btn_a(self, i: discord.Interaction, b: Button): await self._answer(i, "A")
 
-    @discord.ui.button(label="B", style=discord.ButtonStyle.primary)
+    @discord.ui.button(label="B", emoji="🇧", style=discord.ButtonStyle.primary, row=0)
     async def btn_b(self, i: discord.Interaction, b: Button): await self._answer(i, "B")
 
-    @discord.ui.button(label="C", style=discord.ButtonStyle.primary)
+    @discord.ui.button(label="C", emoji="🇨", style=discord.ButtonStyle.primary, row=0)
     async def btn_c(self, i: discord.Interaction, b: Button): await self._answer(i, "C")
 
-    @discord.ui.button(label="D", style=discord.ButtonStyle.primary)
+    @discord.ui.button(label="D", emoji="🇩", style=discord.ButtonStyle.primary, row=0)
     async def btn_d(self, i: discord.Interaction, b: Button): await self._answer(i, "D")
 
 
@@ -134,7 +141,7 @@ class QuestionView(View):
 # ──────────────────────────────────────────────────────
 
 class ExamPanelLaunchView(View):
-    """واجهة الزر الثابت (Persistent) الموضوعة في روم الاختبارات لبدء مسار /exam"""
+    """واجهة الزر الثابت (Persistent) لبدء مسار الاختبار التقني"""
     def __init__(self, bot: discord.Client = None):
         super().__init__(timeout=None)
         self.bot = bot
@@ -149,43 +156,42 @@ class ExamPanelLaunchView(View):
         bot = self.bot or interaction.client
         guild_id = interaction.guild_id or 0
 
-        # الرد الفوري في القناة (ephemeral) - تأكيد بسيط
+        # رد فوري في القناة (ephemeral)
         await interaction.response.send_message(
-            "📩 تم إرسال قائمة اختيار التخصص إلى **رسائلك الخاصة (DM)**.\n"
-            "⚠️ إذا لم تصلك الرسالة، تأكد من فتح الرسائل الخاصة في إعدادات السيرفر.",
+            "📩 تم إرسال لوحة الاختبار واختيار التخصص إلى **رسائلك الخاصة (DM)**.\n"
+            "⚠️ إذا لم تصلك الرسالة، يرجى تفعيل الرسائل المباشرة في إعدادات السيرفر.",
             ephemeral=True
         )
 
-        # فتح DM وإرسال قائمة التخصصات هناك
+        # فتح DM وإرسال قائمة التخصصات
         try:
             dm = await interaction.user.create_dm()
 
             spec_embed = discord.Embed(
-                title="🧪 نظام الاختبارات التقنية",
+                title="🧪 نظام الاختبارات التقنية وتحديد المستوى",
                 description=(
-                    "━━━━━━━━━━━━━━━━━━━━━━\n\n"
-                    "🎯 **اختر تخصصك البرمجي من القائمة أدناه لبدء الاختبار**\n\n"
-                    "📋 **تعليمات الاختبار:**\n"
-                    "╠ 📝 عدد الأسئلة: **3 أسئلة**\n"
-                    "╠ ⏱️ الوقت لكل سؤال: **60 ثانية**\n"
-                    "╠ ✅ يجب الإجابة على **جميع الأسئلة بشكل صحيح** للاجتياز\n"
-                    "╚ 🔄 في حال الرسوب: فترة انتظار **أسبوع** لنفس التخصص\n\n"
-                    "━━━━━━━━━━━━━━━━━━━━━━\n\n"
-                    "⬇️ **اختر تخصصك من القائمة:**"
+                    "━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+                    "🎯 **اختر تخصصك البرمجي من القائمة المنسدلة أدناه لبدء الاختبار:**\n\n"
+                    "📋 **تعليمات وقواعد الاختبار:**\n"
+                    "• 📝 عدد الأسئلة: **3 أسئلة تقنية**\n"
+                    "• ⏱️ الوقت المتاح: **60 ثانية لكل سؤال**\n"
+                    "• 🎯 شرط الاجتياز: **الإجابة الصحيحة بنسبة 100%**\n"
+                    "• 🏷️ عند النجاح: **تُمنح الرتبة تلقائياً وتُعلن في الشات العام**\n"
+                    "• ⏳ في حال عدم الاجتياز: **فترة انتظار أسبوع لنفس التخصص**\n\n"
+                    "━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
                 ),
                 color=discord.Color.from_rgb(88, 101, 242)
             )
             spec_embed.set_footer(text="Programming & Dev • Technical Certification System")
 
             view = ExamSelectView(bot=bot, guild_id=guild_id)
-            await dm.send(embed=spec_embed, view=view)
+            msg = await dm.send(embed=spec_embed, view=view)
 
         except discord.Forbidden:
-            # DM مقفل - إرسال إشعار إضافي
             try:
                 await interaction.followup.send(
-                    "❌ لا أستطيع إرسال رسائل خاصة لك!\n"
-                    "📌 **الحل:** اذهب إلى إعدادات السيرفر → الخصوصية → فعّل 'الرسائل المباشرة' ثم حاول مرة أخرى.",
+                    "❌ لا يمكن للبوت إرسال رسائل في الخاص لديك!\n"
+                    "📌 **يرجى فتح الرسائل الخاصة (Direct Messages) في إعدادات خصوصية السيرفر ثم المحاولة مجدداً.**",
                     ephemeral=True
                 )
             except Exception:
