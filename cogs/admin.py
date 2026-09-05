@@ -123,6 +123,46 @@ class AdminCog(commands.Cog, name="Admin"):
             ephemeral=True
         )
 
+    @commands.command(name="setup-exam-panel")
+    @commands.has_permissions(administrator=True)
+    async def setup_exam_panel_prefix(self, ctx, channel: Optional[discord.TextChannel] = None):
+        """نسخة البريفكس للأمر: !setup-exam-panel"""
+        target_channel = channel or ctx.channel
+        from views.exam_views import ExamPanelLaunchView
+
+        embed = discord.Embed(
+            title="🧪 نظام الاختبارات وتحديد المسار البرمجي | Technical Exam System",
+            description=(
+                "مرحباً بك في مجتمع المطورين! 🚀\n"
+                "هذا النظام مصمم لتقييم مهاراتك التقنية ومنحك الرتبة البرمجية المناسبة تلقائياً في السيرفر.\n\n"
+                "──────────────────────────────────\n\n"
+                "✨ **ما هو الاختبار التقني؟ | What is the Exam?**\n"
+                "🔹 **العربية:** اختبار سريع ومباشر في التخصص البرمجي الذي تختاره لتحديد مستواك.\n"
+                "🔹 **English:** A quick technical assessment in your chosen field to evaluate your skills.\n\n"
+                "⏱️ **المدة الزمنية | Duration:**\n"
+                "⏳ **العربية:** 60 ثانية لكل سؤال (تُرسل الأسئلة في الرسائل الخاصة DMs).\n"
+                "⏳ **English:** 60 seconds per question (questions are sent directly to your DMs).\n\n"
+                "🎯 **الخطوات للبدء | Steps to Start:**\n"
+                "1️⃣ اضغط على زر **بدء الاختبار | Start Exam 🧪** بالأسفل.\n"
+                "2️⃣ اختر تخصصك البرمجي من القائمة الخاصة التي ستظهر لك.\n"
+                "3️⃣ افتح رسائلك الخاصة (DM) وأجب على الأسئلة عبر أزرار الخيارات.\n\n"
+                "⚠️ **تنبيه هام | Important Notice:**\n"
+                "يرجى التأكد من **فتح الرسائل الخاصة (Direct Messages)** في إعدادات خصوصية السيرفر قبل الضغط على الزر لتتمكن من استلام الأسئلة."
+            ),
+            color=discord.Color.from_rgb(88, 101, 242)
+        )
+
+        guild_icon = ctx.guild.icon.url if ctx.guild and ctx.guild.icon else None
+        if guild_icon:
+            embed.set_thumbnail(url=guild_icon)
+            embed.set_footer(text=f"{ctx.guild.name} • Technical Certification System", icon_url=guild_icon)
+        else:
+            embed.set_footer(text="Technical Certification System")
+
+        view = ExamPanelLaunchView(self.bot)
+        await target_channel.send(embed=embed, view=view)
+        await ctx.send(f"✅ تم إرسال لوحة الاختبارات الثابتة بنجاح إلى القناة {target_channel.mention}!")
+
     @reset_cooldown.error
     @exam_history.error
     @list_active_exams.error
