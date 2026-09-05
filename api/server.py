@@ -12,8 +12,12 @@ class AsyncAPIServer:
         self._setup_routes()
 
     def _setup_routes(self):
+        self.app.router.add_get("/", self.root_handler)
         self.app.router.add_get("/api/health", self.health_check)
         self.app.router.add_post("/api/start-exam", self.start_exam_endpoint)
+
+    async def root_handler(self, request: web.Request) -> web.Response:
+        return web.Response(text="Bot is alive!", status=200)
 
     async def health_check(self, request: web.Request) -> web.Response:
         return web.json_response({
