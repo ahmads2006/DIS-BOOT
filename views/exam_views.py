@@ -106,3 +106,33 @@ class QuestionView(View):
 
     @discord.ui.button(label="D", style=discord.ButtonStyle.primary)
     async def btn_d(self, i: discord.Interaction, b: Button): await self._answer(i, "D")
+
+
+class ExamPanelLaunchView(View):
+    """واجهة الزر الثابت (Persistent) الموضوعة في روم الاختبارات لبدء مسار /exam"""
+    def __init__(self, bot: discord.Client = None):
+        super().__init__(timeout=None)
+        self.bot = bot
+
+    @discord.ui.button(
+        label="بدء الاختبار | Start Exam 🧪",
+        style=discord.ButtonStyle.primary,
+        custom_id="persistent_exam_launch_btn",
+        emoji="🚀"
+    )
+    async def launch_exam_btn(self, interaction: discord.Interaction, button: Button):
+        bot = self.bot or interaction.client
+        view = ExamSelectView(bot=bot, guild_id=interaction.guild_id or 0)
+        embed = discord.Embed(
+            title="🧪 اختر تخصصك البرمجي لبدء الاختبار",
+            description=(
+                "اضغط على التخصص المطلوب من الأزرار أدناه:\n"
+                "• سيتم إرسال الأسئلة إليك مباشرة في **الرسائل الخاصة (DM)**.\n"
+                "• تأكد من أن الرسائل الخاصة مفتوحة لديك قبل البدء.\n\n"
+                "⚠️ في حال عدم الاجتياز، تُطبق فترة انتظار أسبوع لنفس التخصص."
+            ),
+            color=discord.Color.blue()
+        )
+        # إرسال الخيارات كرسالة Ephemeral خاصة بالعضو فقط حتى تظل القناة نظيفة
+        await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
+

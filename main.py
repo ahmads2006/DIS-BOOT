@@ -52,6 +52,11 @@ class DeveloperBot(commands.Bot):
         except Exception as e:
             log.error(f"Error syncing slash commands: {e}")
 
+        # تسجيل الواجهات الدائمة (Persistent Views)
+        from views.exam_views import ExamPanelLaunchView
+        self.add_view(ExamPanelLaunchView(self))
+        log.info("Registered Persistent ExamPanelLaunchView.")
+
         # تشغيل خادم الـ API غير المتزامن
         self.api_server = AsyncAPIServer(self)
         await self.api_server.start()
