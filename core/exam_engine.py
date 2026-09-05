@@ -127,7 +127,7 @@ async def start_exam_core(bot: discord.Client, user: discord.User, guild_id: int
 
 async def send_next_question(bot: discord.Client, user: discord.User, dm_channel: discord.DMChannel):
     """
-    إرسال السؤال التالي للمستخدم بتصميم عصري وأنيق وفائق الوضوح.
+    إرسال السؤال التالي للمستخدم بتصميم مدمج وواضح وشبكة خيارات 2x2.
     """
     exam = active_exams.get(user.id)
     if not exam:
@@ -140,35 +140,36 @@ async def send_next_question(bot: discord.Client, user: discord.User, dm_channel
     q_data = exam["selected_questions"][current_idx]
 
     # شريط التقدم الرسومي
-    filled = int(((current_idx + 1) / total) * 8)
-    progress_bar = "▰" * filled + "▱" * (8 - filled)
+    filled = int(((current_idx + 1) / total) * 6)
+    progress_bar = "▰" * filled + "▱" * (6 - filled)
     percent = int(((current_idx + 1) / total) * 100)
 
-    # تنسيق الخيارات بشكل بطاقات منظمة
     opt_a = q_data["c"].get("A", "")
     opt_b = q_data["c"].get("B", "")
     opt_c = q_data["c"].get("C", "")
     opt_d = q_data["c"].get("D", "")
 
     embed = discord.Embed(
-        title=f"📝 السؤال {current_idx + 1} من {total} • Technical Assessment",
+        title=f"📝 السؤال {current_idx + 1} من {total} • Technical Exam",
         description=(
             f"📊 **مستوى التقدم:** `[{progress_bar}] {percent}%`\n\n"
-            f"```fix\n"
-            f"❓ {q_data['q']}\n"
-            f"```\n"
-            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-            f"### 📋 الخيارات المتاحة:\n\n"
-            f"> **🇦 [ A ]** ╶─╶ `{opt_a}`\n\n"
-            f"> **🇧 [ B ]** ╶─╶ `{opt_b}`\n\n"
-            f"> **🇨 [ C ]** ╶─╶ `{opt_c}`\n\n"
-            f"> **🇩 [ D ]** ╶─╶ `{opt_d}`\n"
-            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            f"## ❓ **{q_data['q']}**\n"
+            f"────────────────────────"
         ),
         color=discord.Color.from_rgb(88, 101, 242)
     )
+
+    # شبكة الخيارات 2x2 (A بجانب B، وتحتهما C بجانب D)
+    embed.add_field(name="🔹 الخيار A", value=f"> **{opt_a}**", inline=True)
+    embed.add_field(name="🔹 الخيار B", value=f"> **{opt_b}**", inline=True)
+    embed.add_field(name="\u200b", value="\u200b", inline=True)  # فاصل عمود ثالث لضبط الصف الأول
+
+    embed.add_field(name="🔹 الخيار C", value=f"> **{opt_c}**", inline=True)
+    embed.add_field(name="🔹 الخيار D", value=f"> **{opt_d}**", inline=True)
+    embed.add_field(name="\u200b", value="\u200b", inline=True)  # فاصل عمود ثالث لضبط الصف الثاني
+
     embed.set_footer(
-        text=f"⏰ الوقت المتاح: {QUESTION_TIMEOUT_SECONDS} ثانية • اضغط على الزر المطابق لإجابتك أدناه ⬇️"
+        text=f"⏰ الوقت: {QUESTION_TIMEOUT_SECONDS} ثانية • اختر الإجابة من الأزرار أدناه ⬇️"
     )
 
     view = QuestionView(bot=bot, user=user, timeout_seconds=QUESTION_TIMEOUT_SECONDS)

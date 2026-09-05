@@ -83,11 +83,11 @@ class ExamSelectView(View):
 
 
 # ──────────────────────────────────────────────────────
-#  واجهة أزرار الأسئلة (A, B, C, D) بتصميم عصري وأنيق
+#  واجهة أزرار الأسئلة (A, B, C, D) مرتبة 2x2
 # ──────────────────────────────────────────────────────
 
 class QuestionView(View):
-    """واجهة أزرار الخيارات التفاعلية لكل سؤال"""
+    """واجهة أزرار الخيارات التفاعلية لكل سؤال مرتبة شبكة 2x2"""
     def __init__(self, bot: discord.Client, user: discord.User, timeout_seconds: int = 60):
         super().__init__(timeout=timeout_seconds)
         self.bot = bot
@@ -123,16 +123,18 @@ class QuestionView(View):
         await self._disable_all(interaction, selected_choice=choice)
         await process_answer(self.bot, self.user, choice, interaction)
 
-    @discord.ui.button(label="A", emoji="🇦", style=discord.ButtonStyle.primary, row=0)
+    # صف الأزرار الأول: A بجانب B
+    @discord.ui.button(label="A", style=discord.ButtonStyle.primary, row=0)
     async def btn_a(self, i: discord.Interaction, b: Button): await self._answer(i, "A")
 
-    @discord.ui.button(label="B", emoji="🇧", style=discord.ButtonStyle.primary, row=0)
+    @discord.ui.button(label="B", style=discord.ButtonStyle.primary, row=0)
     async def btn_b(self, i: discord.Interaction, b: Button): await self._answer(i, "B")
 
-    @discord.ui.button(label="C", emoji="🇨", style=discord.ButtonStyle.primary, row=0)
+    # صف الأزرار الثاني: C بجانب D
+    @discord.ui.button(label="C", style=discord.ButtonStyle.primary, row=1)
     async def btn_c(self, i: discord.Interaction, b: Button): await self._answer(i, "C")
 
-    @discord.ui.button(label="D", emoji="🇩", style=discord.ButtonStyle.primary, row=0)
+    @discord.ui.button(label="D", style=discord.ButtonStyle.primary, row=1)
     async def btn_d(self, i: discord.Interaction, b: Button): await self._answer(i, "D")
 
 
@@ -185,7 +187,7 @@ class ExamPanelLaunchView(View):
             spec_embed.set_footer(text="Programming & Dev • Technical Certification System")
 
             view = ExamSelectView(bot=bot, guild_id=guild_id)
-            msg = await dm.send(embed=spec_embed, view=view)
+            await dm.send(embed=spec_embed, view=view)
 
         except discord.Forbidden:
             try:
