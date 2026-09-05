@@ -22,3 +22,27 @@ You have two options:
 [2026-09-05 17:58:19] [INFO] [discord_bot]: Database connection pool closed.
 [2026-09-05 17:58:24] [INFO] [discord_bot]: ✅ Connected to Supabase PostgreSQL database successfully!
 [2026-09-05 17:58:24] [INFO] [discord_bot]: Database connection pool closed.
+[2026-09-05 18:07:23] [INFO] [discord_bot]: Starting bot initialization...
+[2026-09-05 18:07:24] [INFO] [discord_bot]: ✅ Connected to Supabase PostgreSQL database successfully!
+[2026-09-05 18:07:24] [INFO] [discord_bot]: Loaded extension: cogs.onboarding
+[2026-09-05 18:07:24] [INFO] [discord_bot]: Loaded extension: cogs.exam
+[2026-09-05 18:07:24] [INFO] [discord_bot]: Loaded extension: cogs.admin
+[2026-09-05 18:07:24] [INFO] [discord_bot]: Loaded extension: cogs.stats
+[2026-09-05 18:07:25] [INFO] [discord_bot]: Synced 6 slash commands to Guild ID: 1464310306892415129
+[2026-09-05 18:07:25] [INFO] [discord_bot]: ⚡ Async API Server running at http://0.0.0.0:5000
+[2026-09-05 18:07:30] [INFO] [discord_bot]: 🤖 Bot is online as Role+ExamBot#2564 (ID: 1465662310139035775)
+[2026-09-05 18:07:30] [INFO] [discord_bot]: Connected Guilds: ['Programming & Dev']
+[2026-09-05 18:08:19] [INFO] [discord_bot]: Starting bot initialization...
+[2026-09-05 18:08:21] [INFO] [discord_bot]: ✅ Connected to Supabase PostgreSQL database successfully!
+[2026-09-05 18:08:21] [INFO] [discord_bot]: Loaded extension: cogs.onboarding
+[2026-09-05 18:08:21] [INFO] [discord_bot]: Loaded extension: cogs.exam
+[2026-09-05 18:08:21] [INFO] [discord_bot]: Loaded extension: cogs.admin
+[2026-09-05 18:08:21] [INFO] [discord_bot]: Loaded extension: cogs.stats
+[2026-09-05 18:08:21] [INFO] [discord_bot]: Synced 6 slash commands to Guild ID: 1464310306892415129
+[2026-09-05 18:08:21] [ERROR] [discord_bot]: Failed to start API Server on port 5000: [Errno 10048] error while attempting to bind on address ('0.0.0.0', 5000): only one usage of each socket address (protocol/network address/port) is normally permitted
+[2026-09-05 18:08:25] [INFO] [discord_bot]: 🤖 Bot is online as Role+ExamBot#2564 (ID: 1465662310139035775)
+[2026-09-05 18:08:25] [INFO] [discord_bot]: Connected Guilds: ['Programming & Dev']
+[2026-09-05 18:08:46] [INFO] [discord_bot]: Exam started: user=ahmad6910 (1064935519663960166), role=backend
+[2026-09-05 18:09:19] [INFO] [discord_bot]: Recorded exam to Supabase: user=1064935519663960166, role=backend, passed=True
+[2026-09-05 18:26:14] [INFO] [discord_bot]: API Server stopped.
+[2026-09-05 18:26:46] [INFO] [discord_bot]: API Server stopped.

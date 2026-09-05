@@ -1,4 +1,22 @@
-discord.py>=2.3.0
-aiohttp>=3.9.0
+# ================================================
+# Discord Bot Requirements & Dependencies
+# ================================================
+
+# Discord Bot Core Engine
+discord.py>=2.3.2
+
+# Async HTTP Client & Server Framework
+aiohttp>=3.9.1
+
+# Environment Variables Management (.env loader)
 python-dotenv>=1.0.0
+
+# High-Performance PostgreSQL Database Driver (Supabase Connection)
 asyncpg>=0.29.0
+
+# Supabase Official Python Client (Optional / REST SDK)
+supabase>=2.3.0
+
+# Flask REST API Web Server (Backwards Compatibility)
+flask>=3.0.0
+requests>=2.31.0
