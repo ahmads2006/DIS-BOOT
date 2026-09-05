@@ -1,4 +1,5 @@
 import time
+import asyncio
 import discord
 from typing import Tuple, Optional, Any
 from config import (
@@ -41,7 +42,7 @@ async def start_exam_core(bot: discord.Client, user: discord.User, guild_id: int
         log.warning(f"DMs are closed for user {user.name} ({user.id})")
         return ("dm_forbidden",)
 
-    # حفظ حالة الاختبار
+    # حفظ حالة الاختبار (مع قائمة لتتبع رسائل DM لحذفها لاحقاً)
     active_exams[user.id] = {
         "role": role_key,
         "guild_id": guild_id,
@@ -50,7 +51,8 @@ async def start_exam_core(bot: discord.Client, user: discord.User, guild_id: int
         "score": 0,
         "start_time": time.time(),
         "lang": lang,
-        "current_message_id": None
+        "current_message_id": None,
+        "dm_message_ids": [],  # تتبع كل رسائل الاختبار في DM لحذفها بعد الانتهاء
     }
 
     log.info(f"Exam started: user={user.name} ({user.id}), role={role_key}")
@@ -84,6 +86,7 @@ async def send_next_question(bot: discord.Client, user: discord.User, dm_channel
     view = QuestionView(bot=bot, user=user, timeout_seconds=QUESTION_TIMEOUT_SECONDS)
     msg = await dm_channel.send(embed=embed, view=view)
     exam["current_message_id"] = msg.id
+    exam["dm_message_ids"].append(msg.id)  # تتبع الرسالة
 
 
 async def process_answer(bot: discord.Client, user: discord.User, chosen_choice: str, interaction: discord.Interaction):
@@ -120,6 +123,26 @@ async def process_answer(bot: discord.Client, user: discord.User, chosen_choice:
             await handle_exam_fail(bot, user, exam)
 
 
+async def _cleanup_dm_messages(user: discord.User, message_ids: list):
+    """
+    حذف جميع رسائل الاختبار من DM بعد فترة قصيرة.
+    ينتظر 30 ثانية ليقرأ المستخدم النتيجة ثم يحذف كل شيء.
+    """
+    try:
+        await asyncio.sleep(30)  # ينتظر 30 ثانية ليقرأ المستخدم النتيجة
+        dm = await user.create_dm()
+        for msg_id in message_ids:
+            try:
+                msg = await dm.fetch_message(msg_id)
+                await msg.delete()
+                await asyncio.sleep(0.5)  # تجنب rate limit
+            except (discord.NotFound, discord.Forbidden, discord.HTTPException):
+                pass
+        log.info(f"Cleaned up {len(message_ids)} exam DM messages for {user.name}")
+    except Exception as e:
+        log.warning(f"Error cleaning up DM messages for {user.name}: {e}")
+
+
 async def handle_exam_success(bot: discord.Client, user: discord.User, exam: dict):
     """
     منح الرتبة، إرسال إشعار في القناة العامة، وتوثيق النجاح.
@@ -128,6 +151,7 @@ async def handle_exam_success(bot: discord.Client, user: discord.User, exam: dic
     guild_id = exam["guild_id"]
     lang = exam.get("lang", "ar")
     copy = ONBOARDING_COPY.get(lang, ONBOARDING_COPY["ar"])
+    dm_message_ids = list(exam.get("dm_message_ids", []))
 
     role_name = ROLE_MAP.get(role_key, role_key)
     guild = bot.get_guild(guild_id)
@@ -164,19 +188,26 @@ async def handle_exam_success(bot: discord.Client, user: discord.User, exam: dic
                 log.error(f"Error sending log to {PUBLIC_LOG_CHANNEL_NAME}: {e}")
 
     # إشعار المستخدم في الخاص
+    result_msg = None
     try:
         success_embed = discord.Embed(
             title="🎉 نتيجة الاختبار: اجتياز كامل!",
             description=f"{copy['success_dm']}\n\n**الرتبة الممنوحة:** {role_name}\n**الدرجة:** {exam['score']}/{len(exam['selected_questions'])}",
             color=discord.Color.green()
         )
-        await user.send(embed=success_embed)
+        success_embed.set_footer(text="⏳ سيتم حذف هذه المحادثة تلقائياً خلال 30 ثانية...")
+        result_msg = await user.send(embed=success_embed)
     except Exception as e:
         log.warning(f"Could not send success DM to {user.name}: {e}")
 
     # التوثيق والحذف من الذاكرة
     await db.record_exam_attempt(user.id, role_key, exam["score"], passed=True)
     active_exams.pop(user.id, None)
+
+    # حذف رسائل الاختبار من DM بعد 30 ثانية
+    if result_msg:
+        dm_message_ids.append(result_msg.id)
+    asyncio.create_task(_cleanup_dm_messages(user, dm_message_ids))
 
 
 async def handle_exam_fail(bot: discord.Client, user: discord.User, exam: dict):
@@ -187,21 +218,29 @@ async def handle_exam_fail(bot: discord.Client, user: discord.User, exam: dict):
     lang = exam.get("lang", "ar")
     copy = ONBOARDING_COPY.get(lang, ONBOARDING_COPY["ar"])
     role_name = ROLE_MAP.get(role_key, role_key)
+    dm_message_ids = list(exam.get("dm_message_ids", []))
 
     await db.set_cooldown(user.id, role_key, COOLDOWN_SECONDS)
     await db.record_exam_attempt(user.id, role_key, exam["score"], passed=False)
 
+    result_msg = None
     try:
         fail_embed = discord.Embed(
             title="📊 نتيجة الاختبار",
             description=f"**النتيجة:** {exam['score']}/{len(exam['selected_questions'])}\n\n{copy['fail_dm']}",
             color=discord.Color.red()
         )
-        await user.send(embed=fail_embed)
+        fail_embed.set_footer(text="⏳ سيتم حذف هذه المحادثة تلقائياً خلال 30 ثانية...")
+        result_msg = await user.send(embed=fail_embed)
     except Exception as e:
         log.warning(f"Could not send fail DM to {user.name}: {e}")
 
     active_exams.pop(user.id, None)
+
+    # حذف رسائل الاختبار من DM بعد 30 ثانية
+    if result_msg:
+        dm_message_ids.append(result_msg.id)
+    asyncio.create_task(_cleanup_dm_messages(user, dm_message_ids))
 
 
 async def handle_exam_timeout(bot: discord.Client, user: discord.User):
@@ -212,8 +251,16 @@ async def handle_exam_timeout(bot: discord.Client, user: discord.User):
     if exam:
         lang = exam.get("lang", "ar")
         copy = ONBOARDING_COPY.get(lang, ONBOARDING_COPY["ar"])
+        dm_message_ids = list(exam.get("dm_message_ids", []))
+
+        timeout_msg = None
         try:
-            await user.send(copy["timeout_msg"])
+            timeout_msg = await user.send(copy["timeout_msg"])
         except Exception:
             pass
+
+        if timeout_msg:
+            dm_message_ids.append(timeout_msg.id)
+        asyncio.create_task(_cleanup_dm_messages(user, dm_message_ids))
+
         log.info(f"Exam timed out for user {user.name} ({user.id})")

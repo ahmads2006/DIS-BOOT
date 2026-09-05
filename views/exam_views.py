@@ -1,19 +1,50 @@
 import discord
-from discord.ui import View, Button
+from discord.ui import View, Button, Select
 from core.logger import log
 from core.exam_engine import start_exam_core, send_next_question, process_answer, handle_exam_timeout
 from config import ONBOARDING_COPY
 
-class ExamSelectView(View):
-    """واجهة اختيار التخصص للاختبار عبر أوامر السيرفر أو الرسائل الخاصة"""
+# ──────────────────────────────────────────────────────
+#  قائمة اختيار التخصص (تظهر في DM بعد ضغط "بدء الاختبار")
+# ──────────────────────────────────────────────────────
+
+SPECIALIZATIONS = [
+    {"label": "Frontend Developer",      "emoji": "🎨", "value": "frontend",             "description": "HTML, CSS, JavaScript, React, Vue..."},
+    {"label": "Backend Developer",        "emoji": "⚙️", "value": "backend",              "description": "Node.js, Python, Java, APIs, Databases..."},
+    {"label": "Full-Stack Developer",     "emoji": "🌐", "value": "fullstack_developer",  "description": "Frontend + Backend combined"},
+    {"label": "Mobile Developer",         "emoji": "📱", "value": "mobile_developer",     "description": "Android, iOS, Flutter, React Native..."},
+    {"label": "Software Engineer",        "emoji": "💻", "value": "software_engineer",    "description": "DSA, OOP, Design Patterns, Testing..."},
+    {"label": "Security Engineer",        "emoji": "🛡️", "value": "security_engineer",    "description": "Cybersecurity, Penetration Testing..."},
+    {"label": "Solutions Architect",      "emoji": "🏗️", "value": "solutions_architect",  "description": "Cloud Architecture, System Design..."},
+    {"label": "System Architect",         "emoji": "🖥️", "value": "system_architect",     "description": "Infrastructure, Networking, DevOps..."},
+]
+
+
+class ExamSpecialtySelect(Select):
+    """قائمة منسدلة لاختيار التخصص البرمجي"""
     def __init__(self, bot: discord.Client, guild_id: int, lang: str = "ar"):
-        super().__init__(timeout=180)
+        options = [
+            discord.SelectOption(
+                label=spec["label"],
+                emoji=spec["emoji"],
+                value=spec["value"],
+                description=spec["description"]
+            )
+            for spec in SPECIALIZATIONS
+        ]
+        super().__init__(
+            placeholder="🔽 اختر تخصصك البرمجي | Select your specialization",
+            min_values=1,
+            max_values=1,
+            options=options
+        )
         self.bot = bot
         self.guild_id = guild_id
         self.lang = lang
 
-    async def _handle_selection(self, interaction: discord.Interaction, role_key: str):
-        await interaction.response.defer(ephemeral=True)
+    async def callback(self, interaction: discord.Interaction):
+        role_key = self.values[0]
+        await interaction.response.defer()
         copy = ONBOARDING_COPY.get(self.lang, ONBOARDING_COPY["ar"])
 
         status, *extra = await start_exam_core(
@@ -26,42 +57,32 @@ class ExamSelectView(View):
 
         if status == "ok":
             dm_channel = extra[0]
-            await interaction.followup.send(copy["exam_started"], ephemeral=True)
+            # تعطيل القائمة بعد الاختيار
+            self.disabled = True
+            self.placeholder = f"✅ تم اختيار: {role_key}"
+            await interaction.edit_original_response(view=self.view)
             await send_next_question(self.bot, interaction.user, dm_channel)
         elif status == "already_active":
-            await interaction.followup.send(copy["active_exam_exists"], ephemeral=True)
+            await interaction.followup.send(copy["active_exam_exists"])
         elif status == "cooldown":
             hours = extra[0]
-            await interaction.followup.send(f"⛔ {copy['cooldown_msg']} {hours} ساعة.", ephemeral=True)
+            await interaction.followup.send(f"⛔ {copy['cooldown_msg']} {hours} ساعة.")
         elif status == "no_questions":
-            await interaction.followup.send("❌ لا توجد أسئلة متاحة لهذا المسار حالياً.", ephemeral=True)
+            await interaction.followup.send("❌ لا توجد أسئلة متاحة لهذا المسار حالياً.")
         elif status == "dm_forbidden":
-            await interaction.followup.send(copy["dm_closed"], ephemeral=True)
+            await interaction.followup.send(copy["dm_closed"])
 
-    @discord.ui.button(label="🎨 Frontend", style=discord.ButtonStyle.primary, row=0)
-    async def frontend(self, i: discord.Interaction, b: Button): await self._handle_selection(i, "frontend")
 
-    @discord.ui.button(label="⚙️ Backend", style=discord.ButtonStyle.success, row=0)
-    async def backend(self, i: discord.Interaction, b: Button): await self._handle_selection(i, "backend")
+class ExamSelectView(View):
+    """واجهة اختيار التخصص تحتوي على Select Menu"""
+    def __init__(self, bot: discord.Client, guild_id: int, lang: str = "ar"):
+        super().__init__(timeout=180)
+        self.add_item(ExamSpecialtySelect(bot=bot, guild_id=guild_id, lang=lang))
 
-    @discord.ui.button(label="🏗️ Solutions Architect", style=discord.ButtonStyle.secondary, row=0)
-    async def solutions_arch(self, i: discord.Interaction, b: Button): await self._handle_selection(i, "solutions_architect")
 
-    @discord.ui.button(label="🖥️ System Architect", style=discord.ButtonStyle.secondary, row=0)
-    async def system_arch(self, i: discord.Interaction, b: Button): await self._handle_selection(i, "system_architect")
-
-    @discord.ui.button(label="🛡️ Security Engineer", style=discord.ButtonStyle.danger, row=1)
-    async def security(self, i: discord.Interaction, b: Button): await self._handle_selection(i, "security_engineer")
-
-    @discord.ui.button(label="💻 Software Engineer", style=discord.ButtonStyle.primary, row=1)
-    async def software_eng(self, i: discord.Interaction, b: Button): await self._handle_selection(i, "software_engineer")
-
-    @discord.ui.button(label="🌐 Full-Stack", style=discord.ButtonStyle.blurple, row=1)
-    async def fullstack(self, i: discord.Interaction, b: Button): await self._handle_selection(i, "fullstack_developer")
-
-    @discord.ui.button(label="📱 Mobile Developer", style=discord.ButtonStyle.success, row=1)
-    async def mobile_dev(self, i: discord.Interaction, b: Button): await self._handle_selection(i, "mobile_developer")
-
+# ──────────────────────────────────────────────────────
+#  واجهة أزرار الأسئلة (A, B, C, D)
+# ──────────────────────────────────────────────────────
 
 class QuestionView(View):
     """واجهة أزرار الخيارات (A, B, C, D) لكل سؤال في الاختبار"""
@@ -108,6 +129,10 @@ class QuestionView(View):
     async def btn_d(self, i: discord.Interaction, b: Button): await self._answer(i, "D")
 
 
+# ──────────────────────────────────────────────────────
+#  زر بدء الاختبار الثابت (Persistent) في قناة test-yourself
+# ──────────────────────────────────────────────────────
+
 class ExamPanelLaunchView(View):
     """واجهة الزر الثابت (Persistent) الموضوعة في روم الاختبارات لبدء مسار /exam"""
     def __init__(self, bot: discord.Client = None):
@@ -122,17 +147,46 @@ class ExamPanelLaunchView(View):
     )
     async def launch_exam_btn(self, interaction: discord.Interaction, button: Button):
         bot = self.bot or interaction.client
-        view = ExamSelectView(bot=bot, guild_id=interaction.guild_id or 0)
-        embed = discord.Embed(
-            title="🧪 اختر تخصصك البرمجي لبدء الاختبار",
-            description=(
-                "اضغط على التخصص المطلوب من الأزرار أدناه:\n"
-                "• سيتم إرسال الأسئلة إليك مباشرة في **الرسائل الخاصة (DM)**.\n"
-                "• تأكد من أن الرسائل الخاصة مفتوحة لديك قبل البدء.\n\n"
-                "⚠️ في حال عدم الاجتياز، تُطبق فترة انتظار أسبوع لنفس التخصص."
-            ),
-            color=discord.Color.blue()
-        )
-        # إرسال الخيارات كرسالة Ephemeral خاصة بالعضو فقط حتى تظل القناة نظيفة
-        await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
+        guild_id = interaction.guild_id or 0
 
+        # الرد الفوري في القناة (ephemeral) - تأكيد بسيط
+        await interaction.response.send_message(
+            "📩 تم إرسال قائمة اختيار التخصص إلى **رسائلك الخاصة (DM)**.\n"
+            "⚠️ إذا لم تصلك الرسالة، تأكد من فتح الرسائل الخاصة في إعدادات السيرفر.",
+            ephemeral=True
+        )
+
+        # فتح DM وإرسال قائمة التخصصات هناك
+        try:
+            dm = await interaction.user.create_dm()
+
+            spec_embed = discord.Embed(
+                title="🧪 نظام الاختبارات التقنية",
+                description=(
+                    "━━━━━━━━━━━━━━━━━━━━━━\n\n"
+                    "🎯 **اختر تخصصك البرمجي من القائمة أدناه لبدء الاختبار**\n\n"
+                    "📋 **تعليمات الاختبار:**\n"
+                    "╠ 📝 عدد الأسئلة: **3 أسئلة**\n"
+                    "╠ ⏱️ الوقت لكل سؤال: **60 ثانية**\n"
+                    "╠ ✅ يجب الإجابة على **جميع الأسئلة بشكل صحيح** للاجتياز\n"
+                    "╚ 🔄 في حال الرسوب: فترة انتظار **أسبوع** لنفس التخصص\n\n"
+                    "━━━━━━━━━━━━━━━━━━━━━━\n\n"
+                    "⬇️ **اختر تخصصك من القائمة:**"
+                ),
+                color=discord.Color.from_rgb(88, 101, 242)
+            )
+            spec_embed.set_footer(text="Programming & Dev • Technical Certification System")
+
+            view = ExamSelectView(bot=bot, guild_id=guild_id)
+            await dm.send(embed=spec_embed, view=view)
+
+        except discord.Forbidden:
+            # DM مقفل - إرسال إشعار إضافي
+            try:
+                await interaction.followup.send(
+                    "❌ لا أستطيع إرسال رسائل خاصة لك!\n"
+                    "📌 **الحل:** اذهب إلى إعدادات السيرفر → الخصوصية → فعّل 'الرسائل المباشرة' ثم حاول مرة أخرى.",
+                    ephemeral=True
+                )
+            except Exception:
+                pass
