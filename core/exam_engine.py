@@ -248,18 +248,31 @@ async def handle_exam_success(bot: discord.Client, user: discord.User, exam: dic
         if role_obj:
             role_name = role_obj.name
             member = guild.get_member(user.id)
+            if not member:
+                try:
+                    member = await guild.fetch_member(user.id)
+                except Exception as e:
+                    log.error(f"Could not fetch member {user.id} in guild {guild.name}: {e}")
+                    member = None
+
             if member:
-                bot_member = guild.get_member(bot.user.id)
+                bot_member = guild.me or guild.get_member(bot.user.id)
                 if bot_member and bot_member.top_role > role_obj:
                     try:
                         await member.add_roles(role_obj, reason="اجتياز الاختبار التقني بنجاح")
                         log.info(f"Successfully granted role '{role_obj.name}' to {user.name}")
                     except discord.Forbidden:
-                        log.error(f"Missing permissions to grant role '{role_obj.name}' to {user.name}")
+                        log.error(f"Missing permissions (Manage Roles) to grant role '{role_obj.name}' to {user.name}")
                     except Exception as e:
                         log.error(f"Failed to add role '{role_obj.name}' to {user.name}: {e}")
                 else:
-                    log.warning(f"Bot role hierarchy is lower than '{role_obj.name}' in guild {guild.name}")
+                    top_name = bot_member.top_role.name if bot_member else "Unknown"
+                    log.warning(
+                        f"⚠️ خطأ في هرمية الرتب: رتبة البوت '{top_name}' ليست أعلى من الرتبة المطلوبة '{role_obj.name}' في سيرفر {guild.name}! "
+                        f"يرجى سحب رتبة البوت في إعدادات السيرفر لتكون فوق رتب المطورين."
+                    )
+            else:
+                log.error(f"Member with ID {user.id} not found in guild {guild.name}")
         else:
             log.warning(f"Could not find role matching '{role_key}' in guild {guild.name}")
 

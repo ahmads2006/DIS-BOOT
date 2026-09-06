@@ -49,6 +49,11 @@ class LevelSelectView(View):
             role_name = ROLE_MAP.get("junior_developer")
             role = discord.utils.get(guild.roles, name=role_name)
             member = guild.get_member(interaction.user.id)
+            if not member:
+                try:
+                    member = await guild.fetch_member(interaction.user.id)
+                except Exception:
+                    member = None
             if role and member:
                 try:
                     await member.add_roles(role)
