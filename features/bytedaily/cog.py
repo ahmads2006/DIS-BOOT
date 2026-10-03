@@ -259,7 +259,7 @@ class ByteDailyCog(commands.Cog, name="ByteDaily"):
             open_poll = await poll_service.get_open_poll()
             closed_poll = await poll_service.get_closed_poll()
             active_questions = await question_repo.get_active_questions()
-            total_users = await bd_db.fetchval("SELECT COUNT(*) FROM bd_users") or 0
+            total_users = await user_repo.get_total_users()
 
             status_embed = make_info_embed(
                 title="⚙️ ByteDaily System Status",

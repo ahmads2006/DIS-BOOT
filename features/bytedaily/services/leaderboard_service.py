@@ -1,4 +1,4 @@
-﻿"""
+"""
 ByteDaily Leaderboard Service — Live persistent leaderboard embed management.
 
 Maintains a single pinned message in BD_LEADERBOARD_CHANNEL_ID that is
@@ -124,10 +124,25 @@ async def refresh_leaderboard_embed(bot: discord.Client) -> None:
         return
 
     channel = bot.get_channel(BD_LEADERBOARD_CHANNEL_ID)
-    if not channel:
+    if channel is None:
+        try:
+            channel = await bot.fetch_channel(BD_LEADERBOARD_CHANNEL_ID)
+        except (discord.NotFound, discord.Forbidden) as e:
+            log.warning(
+                f"ByteDaily Leaderboard: Channel {BD_LEADERBOARD_CHANNEL_ID} unavailable ({e}). "
+                "Ensure the bot can see that channel."
+            )
+            return
+        except Exception as e:
+            log.warning(
+                f"ByteDaily Leaderboard: Failed to fetch channel {BD_LEADERBOARD_CHANNEL_ID}: {e}"
+            )
+            return
+
+    if not isinstance(channel, (discord.TextChannel, discord.Thread)):
         log.warning(
-            f"ByteDaily Leaderboard: Channel {BD_LEADERBOARD_CHANNEL_ID} not found in bot cache. "
-            "Ensure the bot has access to that channel and it is visible."
+            f"ByteDaily Leaderboard: Channel {BD_LEADERBOARD_CHANNEL_ID} is not a text channel "
+            f"(got {type(channel).__name__}). Skipping refresh."
         )
         return
 
