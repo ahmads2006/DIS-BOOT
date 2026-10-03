@@ -153,11 +153,11 @@ class ByteDailyScheduler:
 
         await self._post_question()
 
-    async def _post_question(self) -> None:
+    async def _post_question(self, target_channel: Optional[discord.TextChannel] = None) -> None:
         """Pick next question, build embed + buttons, send message, and record poll."""
-        channel = self.bot.get_channel(BD_CHANNEL_ID)
+        channel = target_channel or (self.bot.get_channel(BD_CHANNEL_ID) if BD_CHANNEL_ID else None)
         if not channel:
-            log.error(f"ByteDaily: Could not find channel with ID {BD_CHANNEL_ID}")
+            log.error("ByteDaily: Could not find target channel for posting.")
             return
 
         question = await question_service.pick_next_question()

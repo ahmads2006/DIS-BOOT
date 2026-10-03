@@ -101,7 +101,11 @@ class ByteDailyCog(commands.Cog, name="ByteDaily"):
         description="[Admin] Manually post a new ByteDaily challenge immediately",
     )
     @app_commands.default_permissions(administrator=True)
-    async def bytedaily_post(self, interaction: discord.Interaction) -> None:
+    async def bytedaily_post(
+        self,
+        interaction: discord.Interaction,
+        channel: Optional[discord.TextChannel] = None,
+    ) -> None:
         """Admin command: Post a new question immediately."""
         await interaction.response.defer(ephemeral=True)
 
@@ -123,14 +127,26 @@ class ByteDailyCog(commands.Cog, name="ByteDaily"):
             )
             return
 
+        # Resolve target channel: parameter > default BD_CHANNEL_ID
+        target_channel = channel or (self.bot.get_channel(BD_CHANNEL_ID) if BD_CHANNEL_ID else None)
+        if not target_channel:
+            await interaction.followup.send(
+                embed=make_error_embed(
+                    "Target Channel Not Found",
+                    "Target channel not found. Please set BD_CHANNEL_ID or specify a channel parameter.",
+                ),
+                ephemeral=True,
+            )
+            return
+
         try:
-            await self.scheduler._post_question()
+            await self.scheduler._post_question(target_channel=target_channel)
             open_poll = await poll_service.get_open_poll()
             poll_id_str = f"#{open_poll['id']}" if open_poll else "new"
             await interaction.followup.send(
                 embed=make_success_embed(
                     "Challenge Posted",
-                    f"Successfully posted a new ByteDaily challenge ({poll_id_str}) to <#{BD_CHANNEL_ID}>!",
+                    f"Successfully posted a new ByteDaily challenge ({poll_id_str}) to {target_channel.mention}!",
                 ),
                 ephemeral=True,
             )
