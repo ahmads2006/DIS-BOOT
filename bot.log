@@ -57,3 +57,16 @@ You have two options:
 [2026-10-03 19:39:24] [INFO] [discord_bot]: ⚡ Async API Server running at http://0.0.0.0:5000
 [2026-10-03 19:39:29] [INFO] [discord_bot]: 🤖 Bot is online as Role+ExamBot#2564 (ID: 1465662310139035775)
 [2026-10-03 19:39:29] [INFO] [discord_bot]: Connected Guilds: ['Programming & Dev']
+[2026-10-03 20:23:33] [INFO] [discord_bot]: Starting bot initialization...
+[2026-10-03 20:23:34] [INFO] [discord_bot]: ✅ Connected to Supabase PostgreSQL database successfully!
+[2026-10-03 20:23:34] [INFO] [discord_bot]: Loaded extension: legacy.cogs.onboarding
+[2026-10-03 20:23:34] [INFO] [discord_bot]: Loaded extension: legacy.cogs.exam
+[2026-10-03 20:23:34] [INFO] [discord_bot]: Loaded extension: legacy.cogs.admin
+[2026-10-03 20:23:34] [INFO] [discord_bot]: Loaded extension: legacy.cogs.stats
+[2026-10-03 20:23:34] [ERROR] [discord_bot]: Failed to load ByteDaily extension: Extension 'features.bytedaily.cog' has no 'setup' function.
+[2026-10-03 20:23:34] [INFO] [discord_bot]: Synced 7 slash commands to Guild ID: 1464310306892415129
+[2026-10-03 20:23:34] [INFO] [discord_bot]: Registered Persistent ExamPanelLaunchView.
+[2026-10-03 20:23:34] [INFO] [discord_bot]: ByteDaily persistent views: placeholder (no active polls yet).
+[2026-10-03 20:23:34] [INFO] [discord_bot]: ⚡ Async API Server running at http://0.0.0.0:5000
+[2026-10-03 20:23:37] [INFO] [discord_bot]: 🤖 Bot is online as Role+ExamBot#2564 (ID: 1465662310139035775)
+[2026-10-03 20:23:37] [INFO] [discord_bot]: Connected Guilds: ['Programming & Dev']

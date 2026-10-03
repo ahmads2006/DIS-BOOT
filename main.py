@@ -21,25 +21,32 @@ class DeveloperBot(commands.Bot):
     async def setup_hook(self):
         log.info("Starting bot initialization...")
 
-        # تهيئة طبقة قاعدة البيانات
+        # ── 1. Legacy database ──
         await db.initialize()
 
-        # تحميل الموديولات (Cogs)
-        initial_extensions = [
+        # ── 2–5. Legacy cogs ──
+        legacy_extensions = [
             "legacy.cogs.onboarding",
             "legacy.cogs.exam",
             "legacy.cogs.admin",
             "legacy.cogs.stats",
         ]
-
-        for ext in initial_extensions:
+        for ext in legacy_extensions:
             try:
                 await self.load_extension(ext)
                 log.info(f"Loaded extension: {ext}")
             except Exception as e:
                 log.error(f"Failed to load extension {ext}: {e}")
 
-        # مزامنة أوامر السلاش
+        # ── 6. ByteDaily cog ──
+        # BD database pool and scheduler are initialized inside cog_load()
+        try:
+            await self.load_extension("features.bytedaily.cog")
+            log.info("Loaded extension: features.bytedaily.cog")
+        except Exception as e:
+            log.error(f"Failed to load ByteDaily extension: {e}")
+
+        # ── 7. Slash command sync (AFTER all extensions) ──
         try:
             if GUILD_ID:
                 guild_obj = discord.Object(id=GUILD_ID)
@@ -52,12 +59,18 @@ class DeveloperBot(commands.Bot):
         except Exception as e:
             log.error(f"Error syncing slash commands: {e}")
 
-        # تسجيل الواجهات الدائمة (Persistent Views)
+        # ── 8. Legacy persistent views ──
         from legacy.views.exam_views import ExamPanelLaunchView
         self.add_view(ExamPanelLaunchView(self))
         log.info("Registered Persistent ExamPanelLaunchView.")
 
-        # تشغيل خادم الـ API غير المتزامن
+        # ── 9. ByteDaily persistent views ──
+        # TODO: Import and register ByteDailyAnswerView + ByteDailyResultView
+        #       for any open/closed polls that survive bot restarts.
+        #       Implemented when views.py has real logic.
+        log.info("ByteDaily persistent views: placeholder (no active polls yet).")
+
+        # ── 10. API server ──
         self.api_server = AsyncAPIServer(self)
         await self.api_server.start()
 
@@ -65,6 +78,7 @@ class DeveloperBot(commands.Bot):
         if self.api_server:
             await self.api_server.stop()
         await super().close()
+
 
 bot = DeveloperBot()
 
