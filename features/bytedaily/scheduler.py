@@ -227,6 +227,18 @@ class ByteDailyScheduler:
         view = ByteDailyAnswerView(poll_id=poll_id)
         msg = await channel.send(embed=embed, view=view)
 
+        # Pin the challenge message so it stays visible
+        try:
+            await msg.pin()
+            log.info(f"ByteDaily: Pinned challenge message {msg.id} in channel {channel.id}.")
+        except discord.Forbidden:
+            log.warning(
+                f"ByteDaily: Cannot pin message {msg.id} — bot lacks 'Manage Messages' "
+                f"permission in channel {channel.id}. Continuing without pin."
+            )
+        except Exception as e:
+            log.warning(f"ByteDaily: Unexpected error pinning message {msg.id}: {e}")
+
         # Update message ID on poll record
         await poll_service.update_message_ids(poll_id, message_id=msg.id)
         log.info(f"ByteDaily: Posted poll #{poll_id} for question #{question['id']} in message {msg.id}")
@@ -242,10 +254,20 @@ class ByteDailyScheduler:
         if not channel:
             return
 
-        # Disable buttons on question message using child.item.disabled = True
+        # Unpin and disable buttons on question message
         if poll.get('message_id'):
             try:
                 msg = await channel.fetch_message(poll['message_id'])
+                # Unpin before editing so the channel pin list is clean
+                try:
+                    await msg.unpin()
+                    log.info(f"ByteDaily: Unpinned challenge message {msg.id} on poll close.")
+                except discord.Forbidden:
+                    log.warning(
+                        f"ByteDaily: Cannot unpin message {msg.id} — bot lacks 'Manage Messages' permission."
+                    )
+                except Exception as e:
+                    log.warning(f"ByteDaily: Unexpected error unpinning message {msg.id}: {e}")
                 disabled_view = ByteDailyAnswerView(poll_id=poll_id)
                 for child in disabled_view.children:
                     child.item.disabled = True
@@ -286,6 +308,13 @@ class ByteDailyScheduler:
             if poll.get('message_id'):
                 try:
                     msg = await channel.fetch_message(poll['message_id'])
+                    # Unpin before deleting (best-effort; message may already be unpinned)
+                    try:
+                        await msg.unpin()
+                    except (discord.Forbidden, discord.NotFound):
+                        pass
+                    except Exception:
+                        pass
                     await msg.delete()
                 except discord.NotFound:
                     pass
