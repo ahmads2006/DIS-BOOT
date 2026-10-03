@@ -129,3 +129,27 @@ You have two options:
 [2026-10-03 21:18:18] [INFO] [discord_bot]: ⚡ Async API Server running at http://0.0.0.0:5000
 [2026-10-03 21:18:21] [INFO] [discord_bot]: 🤖 Bot is online as Role+ExamBot#2564 (ID: 1465662310139035775)
 [2026-10-03 21:18:21] [INFO] [discord_bot]: Connected Guilds: ['Programming & Dev']
+[2026-10-03 21:29:57] [ERROR] [discord_bot]: ByteDaily AI Generator: Gemini API error HTTP 404: {
+  "error": {
+    "code": 404,
+    "message": "This model models/gemini-2.5-flash is no longer available to new users. Please update your code to use models/gemini-3.8-flash for the latest features and improvements. We recommend you to use the Interactions API (https://ai.google.dev/gemini-api/docs/get-started).",
+    "status": "NOT_FOUND"
+  }
+}
+
+[2026-10-03 21:30:19] [ERROR] [discord_bot]: ByteDaily AI Generator: Gemini API error HTTP 503: {
+  "error": {
+    "code": 503,
+    "message": "This model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later.",
+    "status": "UNAVAILABLE"
+  }
+}
+
+[2026-10-03 21:30:52] [ERROR] [discord_bot]: ByteDaily AI Generator: Gemini API error HTTP 503: {
+  "error": {
+    "code": 503,
+    "message": "This model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later.",
+    "status": "UNAVAILABLE"
+  }
+}
+

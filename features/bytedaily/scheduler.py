@@ -14,9 +14,12 @@ Uses discord.ext.tasks to run a 1-minute periodic loop with three phases:
 
 The scheduler evaluates timestamps on every 1-minute tick for crash/restart resilience.
 DynamicItems are registered globally once on startup.
+
+A separate daily loop fires at 00:00 UTC to pre-generate new questions via the
+Gemini AI generator service (single API call, Free Tier safe).
 """
 
-from datetime import datetime, timezone
+from datetime import datetime, time as dt_time, timezone
 from typing import Optional
 import discord
 from discord.ext import tasks
@@ -31,7 +34,7 @@ from .constants import (
     EMBED_COLOR_STATS,
 )
 from .database.repositories import poll_repo
-from .services import question_service, poll_service
+from .services import question_service, poll_service, ai_generator_service
 from .views import (
     ByteDailyAnswerView,
     ByteDailyResultView,
@@ -62,11 +65,19 @@ class ByteDailyScheduler:
             self._check_loop.start()
             log.info("ByteDaily: Scheduler loop started (1-minute polling interval).")
 
+        if not self._midnight_generate.is_running():
+            self._midnight_generate.start()
+            log.info("ByteDaily: Midnight AI generation loop started (daily at 00:00 UTC).")
+
     def stop(self) -> None:
-        """Stop the 1-minute scheduler loop."""
+        """Stop all scheduler loops."""
         if self._check_loop.is_running():
             self._check_loop.cancel()
             log.info("ByteDaily: Scheduler loop stopped.")
+
+        if self._midnight_generate.is_running():
+            self._midnight_generate.cancel()
+            log.info("ByteDaily: Midnight AI generation loop stopped.")
 
     @tasks.loop(minutes=1)
     async def _check_loop(self) -> None:
@@ -85,6 +96,33 @@ class ByteDailyScheduler:
     @_check_loop.before_loop
     async def _before_check_loop(self) -> None:
         """Wait until the Discord bot is fully ready before starting ticks."""
+        await self.bot.wait_until_ready()
+
+    # ------------------------------------------------------------------ #
+    # Midnight AI generation — fires once daily at 00:00 UTC              #
+    # ------------------------------------------------------------------ #
+
+    @tasks.loop(time=dt_time(hour=0, minute=0, tzinfo=timezone.utc))
+    async def _midnight_generate(self) -> None:
+        """
+        Triggered once every day at 00:00 UTC.
+        Calls ai_generator_service.generate_and_store_questions() to pre-seed
+        the question bank using a single Gemini API request (Free Tier safe).
+        Errors are logged but never allowed to crash the scheduler.
+        """
+        log.info("ByteDaily: Midnight generation task fired — requesting AI questions from Gemini.")
+        try:
+            inserted = await ai_generator_service.generate_and_store_questions(count=5)
+            if inserted:
+                log.info(f"ByteDaily: Midnight generation complete — {inserted} new question(s) added.")
+            else:
+                log.warning("ByteDaily: Midnight generation returned 0 questions (check GEMINI_API_KEY or API response).")
+        except Exception as e:
+            log.error(f"ByteDaily: Midnight generation task raised an unhandled exception: {e}", exc_info=True)
+
+    @_midnight_generate.before_loop
+    async def _before_midnight_generate(self) -> None:
+        """Wait until the bot is ready before the midnight loop starts."""
         await self.bot.wait_until_ready()
 
     async def _tick(self) -> None:

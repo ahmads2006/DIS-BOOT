@@ -3,7 +3,7 @@ ByteDaily Cog — Discord extension entry point.
 
 This Cog is loaded by main.py via bot.load_extension('features.bytedaily.cog').
 It is responsible for:
-  - Registering public and admin slash commands (/leaderboard, /bytedaily-post, /bytedaily-close, /bytedaily-add-question, /bytedaily-status)
+  - Registering public and admin slash commands (/leaderboard, /bytedaily-post, /bytedaily-close, /bytedaily-add-question, /bytedaily-status, /bytedaily-generate-ai)
   - Starting the ByteDaily scheduler loop on cog_load
   - Stopping the scheduler loop on cog_unload
   - Initializing the ByteDaily database pool on cog_load
@@ -27,7 +27,7 @@ from .constants import BD_CHANNEL_ID
 from .database.client import bd_db
 from .database.repositories import question_repo
 from .scheduler import ByteDailyScheduler
-from .services import poll_service, question_service, stats_service
+from .services import poll_service, question_service, stats_service, ai_generator_service
 
 
 class ByteDailyCog(commands.Cog, name="ByteDaily"):
@@ -310,6 +310,55 @@ class ByteDailyCog(commands.Cog, name="ByteDaily"):
             log.error(f"ByteDaily: Error fetching status: {e}", exc_info=True)
             await interaction.followup.send(
                 embed=make_error_embed("Status Error", f"Failed to fetch status: {e}"),
+                ephemeral=True,
+            )
+
+
+    @app_commands.command(
+        name="bytedaily-generate-ai",
+        description="[Admin] Manually trigger AI question generation via Gemini (single API call)",
+    )
+    @app_commands.default_permissions(administrator=True)
+    @app_commands.describe(count="Number of questions to generate (default: 5, max: 10)")
+    async def bytedaily_generate_ai(
+        self,
+        interaction: discord.Interaction,
+        count: int = 5,
+    ) -> None:
+        """Admin command: Trigger AI question generation on demand."""
+        await interaction.response.defer(ephemeral=True)
+
+        if not interaction.user.guild_permissions.administrator:
+            await interaction.followup.send(
+                embed=make_error_embed("Permission Denied", "Only administrators can run this command."),
+                ephemeral=True,
+            )
+            return
+
+        count = max(1, min(count, 10))  # clamp to [1, 10]
+
+        try:
+            inserted = await ai_generator_service.generate_and_store_questions(count=count)
+            if inserted:
+                await interaction.followup.send(
+                    embed=make_success_embed(
+                        "AI Generation Complete",
+                        f"✅ Successfully generated and stored **{inserted}** new question(s) via Gemini API!",
+                    ),
+                    ephemeral=True,
+                )
+            else:
+                await interaction.followup.send(
+                    embed=make_error_embed(
+                        "Generation Failed",
+                        "Gemini API returned 0 valid questions. Check `GEMINI_API_KEY` and API quota.",
+                    ),
+                    ephemeral=True,
+                )
+        except Exception as e:
+            log.error(f"ByteDaily: Error in /bytedaily-generate-ai: {e}", exc_info=True)
+            await interaction.followup.send(
+                embed=make_error_embed("Generation Error", f"An unexpected error occurred: {e}"),
                 ephemeral=True,
             )
 
