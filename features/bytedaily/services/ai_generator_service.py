@@ -17,7 +17,6 @@ import aiohttp
 from bridge.legacy_adapter import log
 from ..database.repositories import question_repo
 
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-lite-latest:generateContent"
 
 PROMPT_TEMPLATE = """
@@ -59,7 +58,7 @@ async def generate_and_store_questions(count: int = 5) -> int:
     Parses the response and inserts all valid questions into `bd_questions`.
     Returns the number of successfully inserted questions.
     """
-    api_key = os.getenv("GEMINI_API_KEY") or os.getenv("GEMINI_KEY") or GEMINI_API_KEY
+    api_key = os.getenv("GEMINI_API_KEY") or os.getenv("GEMINI_KEY", "")
     if not api_key:
         log.warning("ByteDaily AI Generator: GEMINI_API_KEY not found in environment. Skipping AI generation.")
         return 0

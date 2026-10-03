@@ -69,6 +69,12 @@ class ByteDailyScheduler:
             self._midnight_generate.start()
             log.info("ByteDaily: Midnight AI generation loop started (daily at 00:00 UTC).")
 
+        if not BD_CHANNEL_ID:
+            log.warning(
+                "ByteDaily: BD_CHANNEL_ID is not set in environment variables. "
+                "The scheduler will NOT post or close any polls until a channel is configured."
+            )
+
     def stop(self) -> None:
         """Stop all scheduler loops."""
         if self._check_loop.is_running():

@@ -65,10 +65,12 @@ class DeveloperBot(commands.Bot):
         log.info("Registered Persistent ExamPanelLaunchView.")
 
         # ── 9. ByteDaily persistent views ──
-        # TODO: Import and register ByteDailyAnswerView + ByteDailyResultView
-        #       for any open/closed polls that survive bot restarts.
-        #       Implemented when views.py has real logic.
-        log.info("ByteDaily persistent views: placeholder (no active polls yet).")
+        # DynamicItem classes (DynamicAnswerButton, DynamicResultButton) are
+        # registered globally via bot.add_dynamic_items() inside scheduler.start(),
+        # which is called during ByteDailyCog.cog_load(). No additional
+        # bot.add_view() registration is needed — DynamicItem pattern matching
+        # handles button persistence across restarts automatically.
+        log.info("ByteDaily persistent views: DynamicItems registered via scheduler.")
 
         # ── 10. API server ──
         self.api_server = AsyncAPIServer(self)

@@ -55,7 +55,7 @@ class ByteDailyCog(commands.Cog, name="ByteDaily"):
     # Public Slash Commands
     # ─────────────────────────────────────────────────────────────────────────
 
-    @app_commands.command(name="leaderboard", description="View the ByteDaily top leaderboard")
+    @app_commands.command(name="leaderboard", description="عرض قائمة المتصدرين وأعلى النقاط في ByteDaily")
     async def leaderboard(self, interaction: discord.Interaction) -> None:
         """Slash command: Show top ByteDaily participants by points."""
         await interaction.response.defer()
@@ -98,7 +98,7 @@ class ByteDailyCog(commands.Cog, name="ByteDaily"):
 
     @app_commands.command(
         name="bytedaily-post",
-        description="[Admin] Manually post a new ByteDaily challenge immediately",
+        description="[أدمن] نشر تحدي ByteDaily جديد في القناة فوراً",
     )
     @app_commands.default_permissions(administrator=True)
     async def bytedaily_post(
@@ -159,7 +159,7 @@ class ByteDailyCog(commands.Cog, name="ByteDaily"):
 
     @app_commands.command(
         name="bytedaily-close",
-        description="[Admin] Manually close the currently active ByteDaily poll",
+        description="[أدمن] إغلاق التحدي النشط حالياً وحساب النتائج والـ Streaks",
     )
     @app_commands.default_permissions(administrator=True)
     async def bytedaily_close(self, interaction: discord.Interaction) -> None:
@@ -200,7 +200,7 @@ class ByteDailyCog(commands.Cog, name="ByteDaily"):
 
     @app_commands.command(
         name="bytedaily-add-question",
-        description="[Admin] Add a new question to the ByteDaily question bank",
+        description="[أدمن] إضافة سؤال جديد يدوياً إلى بنك أسئلة ByteDaily",
     )
     @app_commands.default_permissions(administrator=True)
     @app_commands.choices(
@@ -264,7 +264,7 @@ class ByteDailyCog(commands.Cog, name="ByteDaily"):
 
     @app_commands.command(
         name="bytedaily-status",
-        description="[Admin] Check the system status of ByteDaily",
+        description="[أدمن] عرض حالة نظام ByteDaily والإحصائيات الحالية",
     )
     @app_commands.default_permissions(administrator=True)
     async def bytedaily_status(self, interaction: discord.Interaction) -> None:
@@ -315,17 +315,17 @@ class ByteDailyCog(commands.Cog, name="ByteDaily"):
 
 
     @app_commands.command(
-        name="bytedaily-generate-ai",
-        description="[Admin] Manually trigger AI question generation via Gemini (single API call)",
+        name="bytedaily-generate",
+        description="[أدمن] توليد أسئلة برمجة فوراً باستخدام الذكاء الاصطناعي وإضافتها لبنك الأسئلة",
     )
     @app_commands.default_permissions(administrator=True)
-    @app_commands.describe(count="Number of questions to generate (default: 5, max: 10)")
-    async def bytedaily_generate_ai(
+    @app_commands.describe(count="عدد الأسئلة المطلوب توليدها (الافتراضي: 5، الحد الأقصى: 10)")
+    async def bytedaily_generate(
         self,
         interaction: discord.Interaction,
         count: int = 5,
     ) -> None:
-        """Admin command: Trigger AI question generation on demand."""
+        """Admin command: On-demand AI question generation via Gemini."""
         await interaction.response.defer(ephemeral=True)
 
         if not interaction.user.guild_permissions.administrator:
@@ -336,55 +336,6 @@ class ByteDailyCog(commands.Cog, name="ByteDaily"):
             return
 
         count = max(1, min(count, 10))  # clamp to [1, 10]
-
-        try:
-            inserted = await ai_generator_service.generate_and_store_questions(count=count)
-            if inserted:
-                await interaction.followup.send(
-                    embed=make_success_embed(
-                        "AI Generation Complete",
-                        f"✅ Successfully generated and stored **{inserted}** new question(s) via Gemini API!",
-                    ),
-                    ephemeral=True,
-                )
-            else:
-                await interaction.followup.send(
-                    embed=make_error_embed(
-                        "Generation Failed",
-                        "Gemini API returned 0 valid questions. Check `GEMINI_API_KEY` and API quota.",
-                    ),
-                    ephemeral=True,
-                )
-        except Exception as e:
-            log.error(f"ByteDaily: Error in /bytedaily-generate-ai: {e}", exc_info=True)
-            await interaction.followup.send(
-                embed=make_error_embed("Generation Error", f"An unexpected error occurred: {e}"),
-                ephemeral=True,
-            )
-
-
-    @app_commands.command(
-        name="bytedaily-generate",
-        description="[Admin] Generate AI questions immediately and insert into bd_questions",
-    )
-    @app_commands.default_permissions(administrator=True)
-    @app_commands.describe(count="Number of questions to generate (default: 1, max: 5)")
-    async def bytedaily_generate(
-        self,
-        interaction: discord.Interaction,
-        count: int = 1,
-    ) -> None:
-        """Admin command: On-demand AI question generation for testing."""
-        await interaction.response.defer(ephemeral=True)
-
-        if not interaction.user.guild_permissions.administrator:
-            await interaction.followup.send(
-                embed=make_error_embed("Permission Denied", "Only administrators can run this command."),
-                ephemeral=True,
-            )
-            return
-
-        count = max(1, min(count, 5))  # clamp to [1, 5]
 
         try:
             inserted = await ai_generator_service.generate_and_store_questions(count=count)
