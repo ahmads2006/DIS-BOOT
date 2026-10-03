@@ -78,6 +78,44 @@ async def update_status(poll_id: int, status: str) -> None:
         )
 
 
+async def transition_status(poll_id: int, from_status: str, to_status: str) -> bool:
+    """
+    Atomically transition poll status from `from_status` to `to_status`.
+    Returns True if this execution successfully changed the status,
+    or False if another execution already changed it.
+    """
+    if to_status == 'closed':
+        result = await bd_db.execute(
+            """
+            UPDATE bd_polls
+            SET status = $2, closed_at = now()
+            WHERE id = $1 AND status = $3
+            """,
+            poll_id,
+            to_status,
+            from_status,
+        )
+    elif to_status == 'deleted':
+        result = await bd_db.execute(
+            """
+            UPDATE bd_polls
+            SET status = $2, deleted_at = now()
+            WHERE id = $1 AND status = $3
+            """,
+            poll_id,
+            to_status,
+            from_status,
+        )
+    else:
+        result = await bd_db.execute(
+            "UPDATE bd_polls SET status = $2 WHERE id = $1 AND status = $3",
+            poll_id,
+            to_status,
+            from_status,
+        )
+    return result.split()[-1] == '1'
+
+
 async def update_message_ids(
     poll_id: int,
     message_id: Optional[int] = None,

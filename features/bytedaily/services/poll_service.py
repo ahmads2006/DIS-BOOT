@@ -16,59 +16,94 @@ All DB access goes through the repository layer.
 MVP scope: No automatic role grants. Points and streak only.
 """
 
-# TODO: Import poll_repo from ..database.repositories.poll_repo
-# TODO: Import answer_repo from ..database.repositories.answer_repo
-# TODO: Import user_repo from ..database.repositories.user_repo
-# TODO: Import constants (POINTS_CORRECT, POINTS_WRONG)
-# TODO: Import log from bridge.legacy_adapter
+from typing import Any, Dict, Optional
+from bridge.legacy_adapter import log
+from ..constants import POINTS_CORRECT, POINTS_WRONG
+from ..database.repositories import poll_repo, answer_repo, user_repo
 
-# TODO: async def create_poll(question_id: int, channel_id: int, message_id: int) -> int:
-#   """
-#   Insert a new poll into bd_polls with status='open'.
-#   Returns the new poll_id.
-#   """
-#   TODO: return await poll_repo.create(question_id, channel_id, message_id)
 
-# TODO: async def close_poll(poll_id: int) -> dict:
-#   """
-#   Close a poll:
-#     1. Fetch all answers for this poll
-#     2. Compute correct_count, wrong_count, total_answers
-#     3. For each answer, call user_repo.upsert_stats() with the appropriate points
-#     4. Update bd_polls: status='closed', closed_at=now(), counts
-#   Returns a stats dict: {total, correct, wrong, percent_correct}
-#   """
-#   TODO: answers = await answer_repo.get_all_for_poll(poll_id)
-#   TODO: total = len(answers)
-#   TODO: correct = sum(1 for a in answers if a['is_correct'])
-#   TODO: wrong = total - correct
-#   TODO: for answer in answers:
-#           points = POINTS_CORRECT if answer['is_correct'] else POINTS_WRONG
-#           await user_repo.upsert_stats(
-#               user_id=answer['user_id'],
-#               is_correct=answer['is_correct'],
-#               points=points,
-#               poll_id=poll_id
-#           )
-#   TODO: await poll_repo.update_status(poll_id, 'closed')
-#   TODO: await poll_repo.update_counts(poll_id, total, correct, wrong)
-#   TODO: percent_correct = round(correct / total * 100, 1) if total > 0 else 0
-#   TODO: return {'total': total, 'correct': correct, 'wrong': wrong,
-#                 'percent_correct': percent_correct}
+async def create_poll(question_id: int, channel_id: int, message_id: Optional[int] = None) -> int:
+    """
+    Insert a new poll into bd_polls with status='open'.
+    Returns the new poll_id.
+    """
+    return await poll_repo.create(question_id, channel_id, message_id)
 
-# TODO: async def mark_deleted(poll_id: int) -> None:
-#   """Mark a poll as 'deleted' after messages have been removed from Discord."""
-#   TODO: await poll_repo.update_status(poll_id, 'deleted')
 
-# TODO: async def get_open_poll() -> dict | None:
-#   """Return the most recent poll with status='open', or None."""
-#   TODO: return await poll_repo.get_latest_by_status('open')
+async def close_poll(poll_id: int) -> Dict[str, Any]:
+    """
+    Close a poll (Concurrency-Safe & Idempotent):
+      1. Atomically attempt to transition status from 'open' to 'closed' in PostgreSQL.
+      2. If transition returns False (already closed/deleted by another worker), fetch and return current stats immediately without awarding points.
+      3. If transition returns True (this worker won the atomic race), process answer stats, award points/streaks, update poll counts, and return stats.
+    """
+    poll = await poll_repo.get_by_id(poll_id)
+    if not poll:
+        raise ValueError(f"Poll #{poll_id} not found in bd_polls.")
 
-# TODO: async def get_closed_poll() -> dict | None:
-#   """Return the most recent poll with status='closed', or None."""
-#   TODO: return await poll_repo.get_latest_by_status('closed')
+    # Attempt atomic status transition FIRST
+    transitioned = await poll_repo.transition_status(poll_id, from_status='open', to_status='closed')
 
-# TODO: async def update_message_ids(poll_id: int, message_id: int = None,
-#                                     stats_message_id: int = None) -> None:
-#   """Update the message IDs stored on a poll record."""
-#   TODO: await poll_repo.update_message_ids(poll_id, message_id, stats_message_id)
+    answers = await answer_repo.get_all_for_poll(poll_id)
+    total = len(answers)
+    correct = sum(1 for a in answers if a.get('is_correct'))
+    wrong = total - correct
+    percent_correct = round((correct / total * 100), 1) if total > 0 else 0.0
+
+    if not transitioned:
+        # Another concurrent process or previous execution already closed/deleted this poll.
+        log.info(
+            f"ByteDaily: Poll #{poll_id} transition from 'open' to 'closed' skipped "
+            f"(already transitioned to '{poll.get('status')}'). Returning stats without re-awarding points."
+        )
+        return {
+            'total': total,
+            'correct': correct,
+            'wrong': wrong,
+            'percent_correct': percent_correct,
+        }
+
+    # Only the single winner of the atomic transition awards points & updates counts
+    for answer in answers:
+        points = POINTS_CORRECT if answer.get('is_correct') else POINTS_WRONG
+        await user_repo.upsert_stats(
+            user_id=answer['user_id'],
+            is_correct=bool(answer.get('is_correct')),
+            points=points,
+            poll_id=poll_id,
+        )
+
+    await poll_repo.update_counts(poll_id, total, correct, wrong)
+
+    log.info(f"ByteDaily: Closed poll #{poll_id} — total={total}, correct={correct}, wrong={wrong}")
+
+    return {
+        'total': total,
+        'correct': correct,
+        'wrong': wrong,
+        'percent_correct': percent_correct,
+    }
+
+
+async def mark_deleted(poll_id: int) -> None:
+    """Mark a poll as 'deleted' after messages have been removed from Discord."""
+    await poll_repo.update_status(poll_id, 'deleted')
+
+
+async def get_open_poll() -> Optional[Dict[str, Any]]:
+    """Return the most recent poll with status='open', or None."""
+    return await poll_repo.get_latest_by_status('open')
+
+
+async def get_closed_poll() -> Optional[Dict[str, Any]]:
+    """Return the most recent poll with status='closed', or None."""
+    return await poll_repo.get_latest_by_status('closed')
+
+
+async def update_message_ids(
+    poll_id: int,
+    message_id: Optional[int] = None,
+    stats_message_id: Optional[int] = None,
+) -> None:
+    """Update the message IDs stored on a poll record."""
+    await poll_repo.update_message_ids(poll_id, message_id, stats_message_id)

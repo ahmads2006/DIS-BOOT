@@ -1,79 +1,196 @@
 """
 ByteDaily Views — Discord UI components for the daily question.
 
-Contains two persistent views (timeout=None, survive bot restarts):
+Uses discord.ui.DynamicItem for persistent, leak-free button handling:
+  1. DynamicAnswerButton: Handles A, B, C, D choices via regex template.
+  2. DynamicResultButton: Handles 'Show my result' button via regex template.
 
-  1. ByteDailyAnswerView:
-     - Four buttons: A, B, C, D  (style=primary)
-     - custom_id pattern: "bd_answer_{poll_id}_{choice}"
-     - On click:
-         * Check if poll is still 'open' (guard against post-close clicks)
-         * Check if user already answered this poll (bd_answers unique constraint)
-         * If already answered → ephemeral "You've already submitted an answer."
-         * If not answered → save to bd_answers, ephemeral "✅ Answer recorded."
-     - After poll closes, scheduler disables buttons by editing the message
-
-  2. ByteDailyResultView:
-     - Single button: "📊 Show my result"  (style=secondary)
-     - custom_id: "bd_show_result_{poll_id}"
-     - On click:
-         * Look up user's answer in bd_answers for this poll
-         * If no answer found → ephemeral "You didn't participate in this poll."
-         * If found → ephemeral embed showing:
-             - Their chosen answer (e.g. "You answered: B")
-             - The correct answer (e.g. "Correct answer: A")
-             - ✅ Correct! or ❌ Wrong.
-             - The explanation text from bd_questions
-
-Note: Both views are registered with bot.add_view() so they work after restarts.
-The poll_id is embedded in the custom_id so the correct poll can be looked up
-from any interaction, even after a restart.
+Views:
+  - ByteDailyAnswerView: Container for the 4 dynamic answer buttons when sending.
+  - ByteDailyResultView: Container for the dynamic result button when sending.
 """
 
-# TODO: Import discord
-# TODO: Import discord.ui (View, Button)
-# TODO: Import answer_repo from .database.repositories.answer_repo
-# TODO: Import poll_repo from .database.repositories.poll_repo
-# TODO: Import question_repo from .database.repositories.question_repo
-# TODO: Import constants (EMBED_COLOR_CORRECT, EMBED_COLOR_WRONG,
-#         CUSTOM_ID_PREFIX_ANSWER, CUSTOM_ID_PREFIX_RESULT)
-# TODO: Import log from bridge.legacy_adapter
+import re
+from typing import Optional
+import discord
+from discord.ui import Button, DynamicItem, View
 
-# TODO: Define class ByteDailyAnswerView(discord.ui.View):
-#   TODO: __init__(self, poll_id: int):
-#           - super().__init__(timeout=None)
-#           - self.poll_id = poll_id
-#           - Dynamically add 4 buttons with correct custom_ids
-#             (Note: discord.ui.button decorator can't use dynamic custom_id,
-#              so buttons must be added manually via discord.ui.Button instances
-#              and self.add_item())
-#   TODO: async _handle_answer(self, interaction, choice: str):
-#           - Defer ephemeral immediately
-#           - Check poll status (poll_repo.get_by_id) — if not 'open': ephemeral already closed
-#           - already = await answer_repo.has_answered(self.poll_id, interaction.user.id)
-#           - if already: await interaction.followup.send("Already answered.", ephemeral=True)
-#           - else:
-#               * is_correct = (choice == poll's question's correct_answer) — need question lookup
-#               * await answer_repo.insert(self.poll_id, user_id, choice, is_correct)
-#               * await interaction.followup.send("✅ Answer recorded.", ephemeral=True)
+from bridge.legacy_adapter import log
+from .constants import (
+    CUSTOM_ID_PREFIX_ANSWER,
+    CUSTOM_ID_PREFIX_RESULT,
+    EMBED_COLOR_CORRECT,
+    EMBED_COLOR_WRONG,
+)
+from .database.repositories import answer_repo, poll_repo, question_repo
 
-# TODO: Define class ByteDailyResultView(discord.ui.View):
-#   TODO: __init__(self, poll_id: int):
-#           - super().__init__(timeout=None)
-#           - self.poll_id = poll_id
-#           - Add single button with custom_id = f"bd_show_result_{poll_id}"
-#   TODO: async _show_result(self, interaction):
-#           - Defer ephemeral
-#           - answer = await answer_repo.get_user_answer(self.poll_id, interaction.user.id)
-#           - if not answer: ephemeral "You didn't participate in this poll."
-#           - else:
-#               * poll = await poll_repo.get_by_id(self.poll_id)
-#               * question = await question_repo.get_by_id(poll['question_id'])
-#               * Build embed:
-#                   title = "📊 Your Result"
-#                   field "Your answer" = answer['chosen_answer']
-#                   field "Correct answer" = question['correct_answer']
-#                   field "Result" = ✅ Correct! or ❌ Wrong.
-#                   field "Explanation" = question['explanation']
-#                   color = EMBED_COLOR_CORRECT if is_correct else EMBED_COLOR_WRONG
-#               * await interaction.followup.send(embed=embed, ephemeral=True)
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Dynamic Buttons (Registered ONCE globally on bot startup)
+# ─────────────────────────────────────────────────────────────────────────────
+
+class DynamicAnswerButton(
+    DynamicItem[Button],
+    template=r"bd_answer_(?P<poll_id>[0-9]+)_(?P<choice>[A-D])",
+):
+    """Persistent dynamic button for answering A, B, C, or D."""
+
+    def __init__(self, poll_id: int, choice: str, disabled: bool = False) -> None:
+        super().__init__(
+            Button(
+                label=choice,
+                style=discord.ButtonStyle.primary,
+                custom_id=f"{CUSTOM_ID_PREFIX_ANSWER}{poll_id}_{choice}",
+                disabled=disabled,
+            )
+        )
+        self.poll_id = poll_id
+        self.choice = choice
+
+    @classmethod
+    async def from_custom_id(
+        cls,
+        interaction: discord.Interaction,
+        item: Button,
+        match: re.Match[str],
+        /,
+    ) -> "DynamicAnswerButton":
+        return cls(poll_id=int(match.group("poll_id")), choice=match.group("choice"))
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        await interaction.response.defer(ephemeral=True)
+
+        poll = await poll_repo.get_by_id(self.poll_id)
+        if not poll or poll.get("status") != "open":
+            await interaction.followup.send(
+                "⚠️ This challenge is already closed. Answers are no longer accepted.",
+                ephemeral=True,
+            )
+            return
+
+        already = await answer_repo.has_answered(self.poll_id, interaction.user.id)
+        if already:
+            await interaction.followup.send(
+                "⚠️ You have already submitted an answer for this challenge.",
+                ephemeral=True,
+            )
+            return
+
+        question = await question_repo.get_by_id(poll["question_id"])
+        if not question:
+            await interaction.followup.send(
+                "⚠️ Question data could not be retrieved.",
+                ephemeral=True,
+            )
+            return
+
+        is_correct = (self.choice.upper() == question["correct_answer"].upper())
+        inserted = await answer_repo.insert(
+            poll_id=self.poll_id,
+            user_id=interaction.user.id,
+            chosen_answer=self.choice.upper(),
+            is_correct=is_correct,
+        )
+
+        if not inserted:
+            await interaction.followup.send(
+                "⚠️ You have already submitted an answer for this challenge.",
+                ephemeral=True,
+            )
+            return
+
+        await interaction.followup.send(
+            f"✅ You selected **{self.choice}**! Your answer is recorded.\n"
+            "Results will be revealed when voting closes.",
+            ephemeral=True,
+        )
+
+
+class DynamicResultButton(
+    DynamicItem[Button],
+    template=r"bd_show_result_(?P<poll_id>[0-9]+)",
+):
+    """Persistent dynamic button for viewing individual user results after poll close."""
+
+    def __init__(self, poll_id: int) -> None:
+        super().__init__(
+            Button(
+                label="📊 Show My Result",
+                style=discord.ButtonStyle.secondary,
+                custom_id=f"{CUSTOM_ID_PREFIX_RESULT}{poll_id}",
+            )
+        )
+        self.poll_id = poll_id
+
+    @classmethod
+    async def from_custom_id(
+        cls,
+        interaction: discord.Interaction,
+        item: Button,
+        match: re.Match[str],
+        /,
+    ) -> "DynamicResultButton":
+        return cls(poll_id=int(match.group("poll_id")))
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        await interaction.response.defer(ephemeral=True)
+
+        user_answer = await answer_repo.get_user_answer(self.poll_id, interaction.user.id)
+        if not user_answer:
+            await interaction.followup.send(
+                "ℹ️ You did not participate in this challenge.",
+                ephemeral=True,
+            )
+            return
+
+        poll = await poll_repo.get_by_id(self.poll_id)
+        if not poll:
+            await interaction.followup.send("⚠️ Poll not found.", ephemeral=True)
+            return
+
+        question = await question_repo.get_by_id(poll["question_id"])
+        if not question:
+            await interaction.followup.send("⚠️ Question data not found.", ephemeral=True)
+            return
+
+        is_correct = user_answer.get("is_correct", False)
+        color = EMBED_COLOR_CORRECT if is_correct else EMBED_COLOR_WRONG
+
+        embed = discord.Embed(
+            title="📊 Your Challenge Result",
+            color=color,
+        )
+        embed.add_field(name="Your Choice", value=f"Option **{user_answer['chosen_answer']}**", inline=True)
+        embed.add_field(name="Correct Answer", value=f"Option **{question['correct_answer']}**", inline=True)
+        embed.add_field(
+            name="Outcome",
+            value="🎉 **Correct (+10 pts)**" if is_correct else "❌ **Incorrect (+0 pts)**",
+            inline=False,
+        )
+        if question.get("explanation"):
+            embed.add_field(name="Explanation", value=question["explanation"], inline=False)
+
+        await interaction.followup.send(embed=embed, ephemeral=True)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# View Containers (Used when sending messages)
+# ─────────────────────────────────────────────────────────────────────────────
+
+class ByteDailyAnswerView(View):
+    """View container containing the 4 choice buttons for a poll."""
+
+    def __init__(self, poll_id: int, disabled: bool = False) -> None:
+        super().__init__(timeout=None)
+        self.poll_id = poll_id
+        for choice in ["A", "B", "C", "D"]:
+            self.add_item(DynamicAnswerButton(poll_id=poll_id, choice=choice, disabled=disabled))
+
+
+class ByteDailyResultView(View):
+    """View container containing the 'Show My Result' button."""
+
+    def __init__(self, poll_id: int) -> None:
+        super().__init__(timeout=None)
+        self.poll_id = poll_id
+        self.add_item(DynamicResultButton(poll_id=poll_id))
