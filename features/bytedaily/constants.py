@@ -58,4 +58,6 @@ CUSTOM_ID_PREFIX_ANSWER: str = "bd_answer_"
 CUSTOM_ID_PREFIX_RESULT: str = "bd_show_result_"
 
 # ── Question selection ───────────────────────────────────────────────────────
-RECENT_QUESTION_LOOKBACK: int = 30  # avoid repeating last N questions
+# History-based dedupe lives in bd_question_history (see question_service).
+# Kept for reference / legacy callers; selection no longer uses a fixed lookback window.
+RECENT_QUESTION_LOOKBACK: int = 30

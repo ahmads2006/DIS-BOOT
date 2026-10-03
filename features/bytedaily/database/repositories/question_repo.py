@@ -20,6 +20,35 @@ async def get_active_questions(exclude_ids: Optional[List[int]] = None) -> List[
     return await bd_db.fetch("SELECT * FROM bd_questions WHERE is_active = TRUE")
 
 
+async def get_random_question(
+    exclude_ids: Optional[List[int]] = None,
+) -> Optional[Dict[str, Any]]:
+    """
+    Pick one random active question, optionally excluding IDs already asked.
+    Uses ORDER BY RANDOM() LIMIT 1 for DB-side selection (avoids loading all rows).
+    Returns None if no matching active question exists.
+    """
+    if exclude_ids:
+        return await bd_db.fetchrow(
+            """
+            SELECT * FROM bd_questions
+            WHERE is_active = TRUE
+              AND id != ALL($1::bigint[])
+            ORDER BY RANDOM()
+            LIMIT 1
+            """,
+            exclude_ids,
+        )
+    return await bd_db.fetchrow(
+        """
+        SELECT * FROM bd_questions
+        WHERE is_active = TRUE
+        ORDER BY RANDOM()
+        LIMIT 1
+        """
+    )
+
+
 async def get_by_id(question_id: int) -> Optional[Dict[str, Any]]:
     """Fetch a single question row by ID. Returns None if not found."""
     return await bd_db.fetchrow(

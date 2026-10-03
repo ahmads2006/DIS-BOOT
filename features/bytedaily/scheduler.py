@@ -239,8 +239,9 @@ class ByteDailyScheduler:
         except Exception as e:
             log.warning(f"ByteDaily: Unexpected error pinning message {msg.id}: {e}")
 
-        # Update message ID on poll record
+        # Update message ID on poll record and mark question as asked
         await poll_service.update_message_ids(poll_id, message_id=msg.id)
+        await question_service.record_asked(question_id=question["id"], poll_id=poll_id)
         log.info(f"ByteDaily: Posted poll #{poll_id} for question #{question['id']} in message {msg.id}")
 
     async def _close_poll(self, poll_id: int) -> None:

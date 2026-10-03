@@ -255,3 +255,8 @@ You have two options:
 [2026-10-03 22:53:58] [INFO] [discord_bot]: ByteDaily: Cog unload complete.
 [2026-10-03 22:54:06] [INFO] [discord_bot]: ByteDaily: DB pool initialized.
 [2026-10-03 22:54:07] [INFO] [discord_bot]: ByteDaily: DB pool closed.
+[2026-10-03 23:16:18] [INFO] [discord_bot]: ByteDaily: DB pool initialized.
+[2026-10-03 23:16:21] [INFO] [discord_bot]: ByteDaily: DB pool closed.
+[2026-10-03 23:16:43] [INFO] [discord_bot]: ByteDaily: DB pool initialized.
+[2026-10-03 23:16:44] [INFO] [discord_bot]: ByteDaily: Picked question #10 (difficulty=2, history_excluded=3)
+[2026-10-03 23:16:45] [INFO] [discord_bot]: ByteDaily: DB pool closed.
