@@ -363,6 +363,53 @@ class ByteDailyCog(commands.Cog, name="ByteDaily"):
             )
 
 
+    @app_commands.command(
+        name="bytedaily-generate",
+        description="[Admin] Generate AI questions immediately and insert into bd_questions",
+    )
+    @app_commands.default_permissions(administrator=True)
+    @app_commands.describe(count="Number of questions to generate (default: 1, max: 5)")
+    async def bytedaily_generate(
+        self,
+        interaction: discord.Interaction,
+        count: int = 1,
+    ) -> None:
+        """Admin command: On-demand AI question generation for testing."""
+        await interaction.response.defer(ephemeral=True)
+
+        if not interaction.user.guild_permissions.administrator:
+            await interaction.followup.send(
+                embed=make_error_embed("Permission Denied", "Only administrators can run this command."),
+                ephemeral=True,
+            )
+            return
+
+        count = max(1, min(count, 5))  # clamp to [1, 5]
+
+        try:
+            inserted = await ai_generator_service.generate_and_store_questions(count=count)
+            if inserted:
+                embed = make_success_embed(
+                    "AI Generation Complete",
+                    f"✅ Successfully generated and stored **{inserted}** question(s) into `bd_questions` via Gemini!",
+                )
+                embed.add_field(name="Requested", value=str(count), inline=True)
+                embed.add_field(name="Inserted", value=str(inserted), inline=True)
+            else:
+                embed = make_error_embed(
+                    "Generation Failed",
+                    "Gemini returned 0 valid questions.\n"
+                    "Check `GEMINI_API_KEY` in `.env` and Gemini API quota/availability.",
+                )
+            await interaction.followup.send(embed=embed, ephemeral=True)
+        except Exception as e:
+            log.error(f"ByteDaily: Error in /bytedaily-generate: {e}", exc_info=True)
+            await interaction.followup.send(
+                embed=make_error_embed("Generation Error", f"An unexpected error occurred: `{e}`"),
+                ephemeral=True,
+            )
+
+
 async def setup(bot: commands.Bot) -> None:
     """Entry point for bot.load_extension('features.bytedaily.cog')."""
     await bot.add_cog(ByteDailyCog(bot))

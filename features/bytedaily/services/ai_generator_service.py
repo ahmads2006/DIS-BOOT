@@ -83,14 +83,28 @@ async def generate_and_store_questions(count: int = 5) -> int:
     url = f"{GEMINI_API_URL}?key={api_key}"
 
     try:
+        import asyncio as _asyncio
         async with aiohttp.ClientSession() as session:
-            async with session.post(url, json=payload, timeout=aiohttp.ClientTimeout(total=30)) as resp:
-                if resp.status != 200:
-                    text = await resp.text()
-                    log.error(f"ByteDaily AI Generator: Gemini API error HTTP {resp.status}: {text}")
-                    return 0
+            data = None
+            for attempt in range(1, 3):  # max 2 attempts
+                async with session.post(url, json=payload, timeout=aiohttp.ClientTimeout(total=30)) as resp:
+                    if resp.status == 200:
+                        data = await resp.json()
+                        break
+                    elif resp.status == 503 and attempt < 2:
+                        log.warning(
+                            f"ByteDaily AI Generator: Gemini API returned 503 (overloaded), "
+                            f"retrying in 5s (attempt {attempt}/2)..."
+                        )
+                        await _asyncio.sleep(5)
+                    else:
+                        text = await resp.text()
+                        log.error(f"ByteDaily AI Generator: Gemini API error HTTP {resp.status}: {text}")
+                        return 0
 
-                data = await resp.json()
+            if data is None:
+                log.error("ByteDaily AI Generator: All retry attempts failed.")
+                return 0
 
         try:
             raw_text = data['candidates'][0]['content']['parts'][0]['text']
