@@ -18,7 +18,7 @@ from bridge.legacy_adapter import log
 from ..database.repositories import question_repo
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
-GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent"
+GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-lite-latest:generateContent"
 
 PROMPT_TEMPLATE = """
 أنت خبير إعداد أسئلة برمجة وتقنية باللغة العربية.
@@ -76,7 +76,6 @@ async def generate_and_store_questions(count: int = 5) -> int:
         ],
         "generationConfig": {
             "temperature": 0.7,
-            "responseMimeType": "application/json",
         }
     }
 

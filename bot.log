@@ -166,3 +166,28 @@ You have two options:
 [2026-10-03 21:35:17] [INFO] [discord_bot]: ByteDaily: DB pool initialized.
 [2026-10-03 21:35:22] [INFO] [discord_bot]: ByteDaily AI Generator: Successfully generated and inserted 1 new questions.
 [2026-10-03 21:35:22] [INFO] [discord_bot]: ByteDaily: DB pool closed.
+[2026-10-03 21:40:23] [INFO] [discord_bot]: ByteDaily: DB pool initialized.
+[2026-10-03 21:40:29] [WARNING] [discord_bot]: ByteDaily AI Generator: Gemini API returned 503 (overloaded), retrying in 5s (attempt 1/2)...
+[2026-10-03 21:40:39] [ERROR] [discord_bot]: ByteDaily AI Generator: Gemini API error HTTP 503: {
+  "error": {
+    "code": 503,
+    "message": "This model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later.",
+    "status": "UNAVAILABLE"
+  }
+}
+
+[2026-10-03 21:40:39] [INFO] [discord_bot]: ByteDaily: DB pool closed.
+[2026-10-03 21:41:03] [INFO] [discord_bot]: ByteDaily: DB pool initialized.
+[2026-10-03 21:41:10] [WARNING] [discord_bot]: ByteDaily AI Generator: Gemini API returned 503 (overloaded), retrying in 5s (attempt 1/2)...
+[2026-10-03 21:41:18] [ERROR] [discord_bot]: ByteDaily AI Generator: Gemini API error HTTP 503: {
+  "error": {
+    "code": 503,
+    "message": "This model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later.",
+    "status": "UNAVAILABLE"
+  }
+}
+
+[2026-10-03 21:41:18] [INFO] [discord_bot]: ByteDaily: DB pool closed.
+[2026-10-03 21:41:55] [INFO] [discord_bot]: ByteDaily: DB pool initialized.
+[2026-10-03 21:41:57] [INFO] [discord_bot]: ByteDaily AI Generator: Successfully generated and inserted 1 new questions.
+[2026-10-03 21:41:57] [INFO] [discord_bot]: ByteDaily: DB pool closed.
