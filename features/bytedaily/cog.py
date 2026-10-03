@@ -12,26 +12,76 @@ It is responsible for:
 The cog does NOT contain business logic — it delegates to services/.
 """
 
-# TODO: Import discord, commands, app_commands
-# TODO: Import ByteDailyScheduler from .scheduler
-# TODO: Import bd_db from .database.client
-# TODO: Import stats_service from .services.stats_service for leaderboard data
-# TODO: Import log from bridge.legacy_adapter
+import discord
+from discord import app_commands
+from discord.ext import commands
 
-# TODO: Define class ByteDailyCog(commands.Cog, name="ByteDaily"):
-#   TODO: __init__(self, bot: commands.Bot) — store bot ref, create scheduler instance
-#   TODO: async cog_load(self):
-#           - await bd_db.initialize()
-#           - await self.scheduler.start()
-#   TODO: async cog_unload(self):
-#           - await self.scheduler.stop()
-#           - await bd_db.close()
-#   TODO: @app_commands.command(name="leaderboard", ...)
-#         async def leaderboard(self, interaction):
-#           - await interaction.response.defer()
-#           - data = await stats_service.get_leaderboard(limit=10)
-#           - build embed with ranked rows (rank, user mention, points, streak)
-#           - await interaction.followup.send(embed=embed)
+from bridge.legacy_adapter import log
+from features.shared.embed_helpers import make_info_embed
+from .database.client import bd_db
+from .scheduler import ByteDailyScheduler
+from .services import stats_service
 
-# TODO: async def setup(bot: commands.Bot):
-#         await bot.add_cog(ByteDailyCog(bot))
+
+class ByteDailyCog(commands.Cog, name="ByteDaily"):
+    """ByteDaily feature extension cog."""
+
+    def __init__(self, bot: commands.Bot) -> None:
+        self.bot = bot
+        self.scheduler = ByteDailyScheduler(bot)
+
+    async def cog_load(self) -> None:
+        """Initialize DB pool and start scheduler loop on extension load."""
+        log.info("ByteDaily: Loading cog — initializing database pool and scheduler...")
+        await bd_db.initialize()
+        self.scheduler.start()
+        log.info("ByteDaily: Cog load complete.")
+
+    async def cog_unload(self) -> None:
+        """Stop scheduler loop and close DB pool on extension unload."""
+        log.info("ByteDaily: Unloading cog — stopping scheduler and closing database pool...")
+        self.scheduler.stop()
+        await bd_db.close()
+        log.info("ByteDaily: Cog unload complete.")
+
+    @app_commands.command(name="leaderboard", description="View the ByteDaily top leaderboard")
+    async def leaderboard(self, interaction: discord.Interaction) -> None:
+        """Slash command: Show top ByteDaily participants by points."""
+        await interaction.response.defer()
+
+        top_users = await stats_service.get_leaderboard(limit=10)
+
+        if not top_users:
+            embed = make_info_embed(
+                title="🏆 ByteDaily Leaderboard",
+                description="No members have participated in ByteDaily challenges yet!",
+            )
+            await interaction.followup.send(embed=embed)
+            return
+
+        description_lines = []
+        rank_emojis = {1: "🥇", 2: "🥈", 3: "🥉"}
+
+        for row in top_users:
+            rank = row.get("rank", 0)
+            prefix = rank_emojis.get(rank, f"`#{rank}`")
+            user_mention = f"<@{row['user_id']}>"
+            points = row.get("total_points", 0)
+            streak = row.get("current_streak", 0)
+            description_lines.append(
+                f"{prefix} {user_mention} — **{points}** pts | 🔥 Streak: **{streak}**"
+            )
+
+        embed = make_info_embed(
+            title="🏆 ByteDaily Leaderboard",
+            description="\n".join(description_lines),
+            color=discord.Color.gold(),
+        )
+        embed.set_footer(text="Earn points and build streaks by solving daily challenges!")
+
+        await interaction.followup.send(embed=embed)
+
+
+async def setup(bot: commands.Bot) -> None:
+    """Entry point for bot.load_extension('features.bytedaily.cog')."""
+    await bot.add_cog(ByteDailyCog(bot))
