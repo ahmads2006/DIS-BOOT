@@ -23,11 +23,11 @@ from features.shared.embed_helpers import (
     make_error_embed,
     make_success_embed,
 )
-from .constants import BD_CHANNEL_ID
+from .constants import BD_CHANNEL_ID, BD_LEADERBOARD_CHANNEL_ID
 from .database.client import bd_db
-from .database.repositories import question_repo
+from .database.repositories import question_repo, user_repo
 from .scheduler import ByteDailyScheduler
-from .services import poll_service, question_service, stats_service, ai_generator_service
+from .services import poll_service, question_service, stats_service, ai_generator_service, leaderboard_service
 
 
 class ByteDailyCog(commands.Cog, name="ByteDaily"):
@@ -59,38 +59,15 @@ class ByteDailyCog(commands.Cog, name="ByteDaily"):
     async def leaderboard(self, interaction: discord.Interaction) -> None:
         """Slash command: Show top ByteDaily participants by points."""
         await interaction.response.defer()
-
-        top_users = await stats_service.get_leaderboard(limit=10)
-
-        if not top_users:
-            embed = make_info_embed(
-                title="🏆 ByteDaily Leaderboard",
-                description="No members have participated in ByteDaily challenges yet!",
-            )
+        try:
+            top_users = await user_repo.get_leaderboard(limit=10)
+            embed = leaderboard_service.build_leaderboard_embed(top_users)
             await interaction.followup.send(embed=embed)
-            return
-
-        description_lines = []
-        rank_emojis = {1: "🥇", 2: "🥈", 3: "🥉"}
-
-        for row in top_users:
-            rank = row.get("rank", 0)
-            prefix = rank_emojis.get(rank, f"`#{rank}`")
-            user_mention = f"<@{row['user_id']}>"
-            points = row.get("total_points", 0)
-            streak = row.get("current_streak", 0)
-            description_lines.append(
-                f"{prefix} {user_mention} — **{points}** pts | 🔥 Streak: **{streak}**"
+        except Exception as e:
+            log.error(f"ByteDaily: /leaderboard error: {e}", exc_info=True)
+            await interaction.followup.send(
+                embed=make_error_embed("Error", f"Failed to fetch leaderboard: {e}")
             )
-
-        embed = make_info_embed(
-            title="🏆 ByteDaily Leaderboard",
-            description="\n".join(description_lines),
-            color=discord.Color.gold(),
-        )
-        embed.set_footer(text="Earn points and build streaks by solving daily challenges!")
-
-        await interaction.followup.send(embed=embed)
 
     # ─────────────────────────────────────────────────────────────────────────
     # Admin Slash Commands
@@ -357,6 +334,140 @@ class ByteDailyCog(commands.Cog, name="ByteDaily"):
             log.error(f"ByteDaily: Error in /bytedaily-generate: {e}", exc_info=True)
             await interaction.followup.send(
                 embed=make_error_embed("Generation Error", f"An unexpected error occurred: `{e}`"),
+                ephemeral=True,
+            )
+
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # Live Leaderboard & Personal Rank
+    # ─────────────────────────────────────────────────────────────────────────
+
+    @app_commands.command(
+        name="bytedaily-leaderboard",
+        description="[أدمن] تحديث لوحة المتصدرين الثابتة فوراً في قناة اللوحة",
+    )
+    @app_commands.default_permissions(administrator=True)
+    async def bytedaily_leaderboard_refresh(self, interaction: discord.Interaction) -> None:
+        """Admin command: Force an immediate leaderboard embed refresh."""
+        await interaction.response.defer(ephemeral=True)
+
+        if not interaction.user.guild_permissions.administrator:
+            await interaction.followup.send(
+                embed=make_error_embed("Permission Denied", "Only administrators can run this command."),
+                ephemeral=True,
+            )
+            return
+
+        if not BD_LEADERBOARD_CHANNEL_ID:
+            await interaction.followup.send(
+                embed=make_error_embed(
+                    "Not Configured",
+                    "BD_LEADERBOARD_CHANNEL_ID is not set in `.env`. Add it to enable the live leaderboard.",
+                ),
+                ephemeral=True,
+            )
+            return
+
+        try:
+            await leaderboard_service.refresh_leaderboard_embed(self.bot)
+            lb_channel = self.bot.get_channel(BD_LEADERBOARD_CHANNEL_ID)
+            channel_mention = lb_channel.mention if lb_channel else f"<#{BD_LEADERBOARD_CHANNEL_ID}>"
+            await interaction.followup.send(
+                embed=make_success_embed(
+                    "Leaderboard Refreshed",
+                    f"✅ Live leaderboard has been updated in {channel_mention}.",
+                ),
+                ephemeral=True,
+            )
+        except Exception as e:
+            log.error(f"ByteDaily: Error refreshing leaderboard: {e}", exc_info=True)
+            await interaction.followup.send(
+                embed=make_error_embed("Refresh Error", f"Failed to refresh leaderboard: {e}"),
+                ephemeral=True,
+            )
+
+    @app_commands.command(
+        name="bytedaily-rank",
+        description="عرض إحصائياتك الشخصية ورتبتك في تحدي ByteDaily",
+    )
+    async def bytedaily_rank(self, interaction: discord.Interaction) -> None:
+        """Public command: Show the caller's personal ByteDaily stats card."""
+        await interaction.response.defer(ephemeral=True)
+
+        user_id = interaction.user.id
+        try:
+            stats = await user_repo.get_by_id(user_id)
+            if not stats:
+                await interaction.followup.send(
+                    embed=make_info_embed(
+                        title="📊 بياناتك في ByteDaily",
+                        description=(
+                            "لم تشارك في أي تحدٍّ بعد!\n"
+                            "حل التحدي اليومي للبدء في تجميع النقاط والترتيب. 🚀"
+                        ),
+                    ),
+                    ephemeral=True,
+                )
+                return
+
+            rank = await user_repo.get_rank(user_id)
+            total_users = await user_repo.get_total_users()
+
+            correct = int(stats.get("correct_count", 0))
+            wrong = int(stats.get("wrong_count", 0))
+            total_ans = correct + wrong
+            accuracy = f"{round(correct / total_ans * 100)}%" if total_ans > 0 else "—"
+            current_streak = stats.get("current_streak", 0)
+            best_streak = stats.get("best_streak", 0)
+            points = stats.get("total_points", 0)
+            rank_str = f"#{rank}" if rank else "—"
+
+            embed = discord.Embed(
+                title=f"📊 إحصائياتك في ByteDaily",
+                color=discord.Color.blurple(),
+            )
+            embed.set_author(
+                name=str(interaction.user),
+                icon_url=interaction.user.display_avatar.url,
+            )
+            embed.add_field(
+                name="🏅 الترتيب",
+                value=f"**{rank_str}** من أصل {total_users} مشارك",
+                inline=True,
+            )
+            embed.add_field(
+                name="⭐ النقاط",
+                value=f"**{points}** pts",
+                inline=True,
+            )
+            embed.add_field(
+                name="🔥 السلسلة الحالية / الأفضل",
+                value=f"**{current_streak}** / **{best_streak}**",
+                inline=True,
+            )
+            embed.add_field(
+                name="✅ إجابات صحيحة",
+                value=f"**{correct}** / {total_ans}",
+                inline=True,
+            )
+            embed.add_field(
+                name="🎯 نسبة الدقة",
+                value=accuracy,
+                inline=True,
+            )
+            embed.add_field(
+                name="❌ إجابات خاطئة",
+                value=str(wrong),
+                inline=True,
+            )
+            embed.set_footer(text="أحل التحدي اليومي لتحسين ترتيبك!")
+
+            await interaction.followup.send(embed=embed, ephemeral=True)
+
+        except Exception as e:
+            log.error(f"ByteDaily: /bytedaily-rank error for user {user_id}: {e}", exc_info=True)
+            await interaction.followup.send(
+                embed=make_error_embed("خطأ", f"فشل جلب إحصائياتك: {e}"),
                 ephemeral=True,
             )
 

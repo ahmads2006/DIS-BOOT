@@ -34,7 +34,7 @@ from .constants import (
     EMBED_COLOR_STATS,
 )
 from .database.repositories import poll_repo
-from .services import question_service, poll_service, ai_generator_service
+from .services import question_service, poll_service, ai_generator_service, leaderboard_service
 from .views import (
     ByteDailyAnswerView,
     ByteDailyResultView,
@@ -296,6 +296,9 @@ class ByteDailyScheduler:
 
         await poll_service.update_message_ids(poll_id, stats_message_id=stats_msg.id)
         log.info(f"ByteDaily: Closed poll #{poll_id}, posted stats message {stats_msg.id}")
+
+        # Refresh the live leaderboard now that points/streaks have been awarded
+        await leaderboard_service.refresh_leaderboard_embed(self.bot)
 
     async def _delete_poll(self, poll_id: int) -> None:
         """Delete Discord messages and mark poll as deleted in DB."""

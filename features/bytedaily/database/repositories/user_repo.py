@@ -82,3 +82,9 @@ async def get_rank(user_id: int) -> Optional[int]:
         user_id,
     )
     return int(rank) if rank is not None else None
+
+
+async def get_total_users() -> int:
+    """Return the total number of users who have participated in ByteDaily."""
+    count = await bd_db.fetchval("SELECT COUNT(*) FROM bd_users")
+    return int(count) if count is not None else 0

@@ -23,6 +23,9 @@ POINTS_WRONG: int = 0         # points for a wrong answer (none in MVP)
 _raw_channel_id = os.getenv("BD_CHANNEL_ID", "0")
 BD_CHANNEL_ID: Optional[int] = int(_raw_channel_id) if _raw_channel_id.isdigit() and int(_raw_channel_id) != 0 else None
 
+_raw_lb_channel_id = os.getenv("BD_LEADERBOARD_CHANNEL_ID", "0")
+BD_LEADERBOARD_CHANNEL_ID: Optional[int] = int(_raw_lb_channel_id) if _raw_lb_channel_id.isdigit() and int(_raw_lb_channel_id) != 0 else None
+
 # ── Embed colours ────────────────────────────────────────────────────────────
 EMBED_COLOR_QUESTION = discord.Color.blurple()     # question post embed
 EMBED_COLOR_STATS    = discord.Color.og_blurple()  # stats summary embed
