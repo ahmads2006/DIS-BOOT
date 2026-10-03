@@ -11,6 +11,7 @@ Views:
 """
 
 import re
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 import discord
 from discord.ui import Button, DynamicItem, View
@@ -19,10 +20,13 @@ from bridge.legacy_adapter import log
 from .constants import (
     CUSTOM_ID_PREFIX_ANSWER,
     CUSTOM_ID_PREFIX_RESULT,
+    CHOICE_EMOJIS,
+    ANSWER_WINDOW_SECONDS,
     EMBED_COLOR_CORRECT,
     EMBED_COLOR_WRONG,
 )
 from .database.repositories import answer_repo, poll_repo, question_repo
+from .embeds import build_challenge_embed
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -36,9 +40,11 @@ class DynamicAnswerButton(
     """Persistent dynamic button for answering A, B, C, or D."""
 
     def __init__(self, poll_id: int, choice: str, disabled: bool = False) -> None:
+        emoji = CHOICE_EMOJIS.get(choice.upper(), choice)
         super().__init__(
             Button(
                 label=choice,
+                emoji=emoji,
                 style=discord.ButtonStyle.primary,
                 custom_id=f"{CUSTOM_ID_PREFIX_ANSWER}{poll_id}_{choice}",
                 disabled=disabled,
@@ -104,6 +110,36 @@ class DynamicAnswerButton(
             "Results will be revealed when voting closes.",
             ephemeral=True,
         )
+
+        # Best-effort: refresh the participants counter on the challenge embed
+        try:
+            counts = await answer_repo.count_for_poll(self.poll_id)
+            opened_at = poll.get("opened_at")
+            if opened_at is not None:
+                if opened_at.tzinfo is None:
+                    opened_at = opened_at.replace(tzinfo=timezone.utc)
+                closes_at = opened_at + timedelta(seconds=ANSWER_WINDOW_SECONDS)
+            else:
+                closes_at = datetime.now(timezone.utc) + timedelta(seconds=ANSWER_WINDOW_SECONDS)
+
+            footer_icon = None
+            if interaction.client.user:
+                footer_icon = interaction.client.user.display_avatar.url
+
+            embed = build_challenge_embed(
+                question=question,
+                poll_id=self.poll_id,
+                closes_at=closes_at,
+                participants=counts.get("total", 0),
+                footer_icon_url=footer_icon,
+            )
+            channel = interaction.channel
+            message_id = poll.get("message_id")
+            if channel and message_id:
+                msg = await channel.fetch_message(message_id)
+                await msg.edit(embed=embed)
+        except Exception as e:
+            log.warning(f"ByteDaily: Could not refresh participant count on poll #{self.poll_id}: {e}")
 
 
 class DynamicResultButton(

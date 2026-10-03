@@ -19,7 +19,7 @@ A separate daily loop fires at 00:00 UTC to pre-generate new questions via the
 Gemini AI generator service (single API call, Free Tier safe).
 """
 
-from datetime import datetime, time as dt_time, timezone
+from datetime import datetime, time as dt_time, timedelta, timezone
 from typing import Optional
 import discord
 from discord.ext import tasks
@@ -30,10 +30,10 @@ from .constants import (
     CLEANUP_DELAY_SECONDS,
     POST_HOUR_UTC,
     BD_CHANNEL_ID,
-    EMBED_COLOR_QUESTION,
     EMBED_COLOR_STATS,
 )
 from .database.repositories import poll_repo
+from .embeds import build_challenge_embed
 from .services import question_service, poll_service, ai_generator_service, leaderboard_service
 from .views import (
     ByteDailyAnswerView,
@@ -206,22 +206,22 @@ class ByteDailyScheduler:
 
         question = await question_service.pick_next_question()
 
-        embed = discord.Embed(
-            title="💡 ByteDaily — Daily Challenge",
-            description=f"**{question['question_text']}**\n\n"
-                        f"🇦 {question['choice_a']}\n"
-                        f"🇧 {question['choice_b']}\n"
-                        f"🇨 {question['choice_c']}\n"
-                        f"🇩 {question['choice_d']}",
-            color=EMBED_COLOR_QUESTION,
-        )
-        embed.set_footer(text=f"Difficulty: {'⭐' * question.get('difficulty', 1)} | Voting closes in 12 hours")
-
-        # Create poll record in database
+        # Create poll record first so the embed title can include poll_id
         poll_id = await poll_service.create_poll(
             question_id=question['id'],
             channel_id=channel.id,
             message_id=None,
+        )
+
+        now = datetime.now(timezone.utc)
+        closes_at = now + timedelta(seconds=ANSWER_WINDOW_SECONDS)
+        footer_icon = self.bot.user.display_avatar.url if self.bot.user else None
+        embed = build_challenge_embed(
+            question=question,
+            poll_id=poll_id,
+            closes_at=closes_at,
+            participants=0,
+            footer_icon_url=footer_icon,
         )
 
         view = ByteDailyAnswerView(poll_id=poll_id)
@@ -280,16 +280,19 @@ class ByteDailyScheduler:
         # Post stats message with "Show my result" button
         question = await question_service.get_question_by_id(poll['question_id'])
         stats_embed = discord.Embed(
-            title="📊 ByteDaily — Challenge Results",
-            description=f"Voting for today's challenge is now closed!\n\n"
-                        f"**Correct Answer:** {question['correct_answer']}\n\n"
-                        f"**Explanation:**\n{question['explanation']}\n\n"
-                        f"👥 **Total Participants:** {stats['total']}\n"
-                        f"✅ **Correct Answers:** {stats['correct']} ({stats['percent_correct']}%)\n"
-                        f"❌ **Wrong Answers:** {stats['wrong']}",
+            title="📊 BYTE DAILY | نتائج التحدي",
+            description=(
+                f"أُغلق التصويت على تحدي **#{poll_id}**!\n\n"
+                f"**✅ الإجابة الصحيحة:** `{question['correct_answer']}`\n\n"
+                f"**📖 الشرح:**\n> {question['explanation']}\n\n"
+                f"👥 **المشاركون:** {stats['total']}\n"
+                f"✅ **إجابات صحيحة:** {stats['correct']} ({stats['percent_correct']}%)\n"
+                f"❌ **إجابات خاطئة:** {stats['wrong']}"
+            ),
             color=EMBED_COLOR_STATS,
+            timestamp=datetime.now(timezone.utc),
         )
-        stats_embed.set_footer(text="Click below to see your personal result. Cleanup in 12 hours.")
+        stats_embed.set_footer(text="DevQuest Engine • اضغط الزر لمعرفة نتيجتك الشخصية")
 
         result_view = ByteDailyResultView(poll_id=poll_id)
         stats_msg = await channel.send(embed=stats_embed, view=result_view)

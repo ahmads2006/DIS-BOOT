@@ -1,4 +1,4 @@
-"""
+﻿"""
 ByteDaily Leaderboard Service — Live persistent leaderboard embed management.
 
 Maintains a single pinned message in BD_LEADERBOARD_CHANNEL_ID that is
@@ -22,7 +22,7 @@ from typing import Any, Dict, List, Optional
 import discord
 
 from bridge.legacy_adapter import log
-from ..constants import BD_LEADERBOARD_CHANNEL_ID
+from ..constants import BD_LEADERBOARD_CHANNEL_ID, EMBED_COLOR_LEADERBOARD, EMBED_THUMBNAIL_LEADERBOARD
 from ..database.repositories import user_repo
 
 
@@ -55,37 +55,38 @@ def _save_message_id(message_id: int) -> None:
 
 # -- Embed builder -------------------------------------------------------------
 
-_RANK_EMOJIS: Dict[int, str] = {
-    1: "🥇", 2: "🥈", 3: "🥉",
-    4: "4️⃣", 5: "5️⃣", 6: "6️⃣",
-    7: "7️⃣", 8: "8️⃣", 9: "9️⃣", 10: "🔟",
-}
+_PODIUM_EMOJIS: Dict[int, str] = {1: "🥇", 2: "🥈", 3: "🥉"}
+_SEPARATOR = "═══════════════════════════════"
 
 
 def build_leaderboard_embed(top_users: List[Dict[str, Any]]) -> discord.Embed:
     """
-    Build and return the leaderboard discord.Embed from a top-N users list.
+    Build and return the luxury podium-style leaderboard embed.
     Each row must contain: user_id, rank, total_points, current_streak,
                            correct_count, wrong_count.
     """
     embed = discord.Embed(
-        title="🏆 ByteDaily Leaderboard | لوحة متصدري التحدي",
-        color=discord.Color.gold(),
+        title="🏆 LEADERBOARD | قمة متصدري DevQuest",
+        color=EMBED_COLOR_LEADERBOARD,
         timestamp=datetime.now(timezone.utc),
     )
+    embed.set_thumbnail(url=EMBED_THUMBNAIL_LEADERBOARD)
 
     if not top_users:
         embed.description = (
             "لا يوجد مشاركون بعد!\n"
-            "كن أول من يحل التحدي اليومي. 🚀"
+            "كن أول من يحل التحدي اليومي وافتح القمة. 🚀"
         )
-        embed.set_footer(text="يُحدَّث تلقائياً عند إغلاق كل تحدٍّ يومي")
+        embed.set_footer(
+            text="🔄 التحديث تلقائي فور إغلاق كل تحدي يومي | اكتب /bytedaily-rank لمعرفة ترتيبك الشخصي"
+        )
         return embed
 
-    lines: List[str] = []
+    podium_lines: List[str] = ["**👑 THE PODIUM — القمة**", ""]
+    rest_lines: List[str] = []
+
     for row in top_users:
         rank = int(row.get("rank", 0))
-        prefix = _RANK_EMOJIS.get(rank, f"`#{rank}`")
         user_mention = f"<@{row['user_id']}>"
         points = row.get("total_points", 0)
         streak = row.get("current_streak", 0)
@@ -93,14 +94,27 @@ def build_leaderboard_embed(top_users: List[Dict[str, Any]]) -> discord.Embed:
         wrong = int(row.get("wrong_count", 0))
         total = correct + wrong
         accuracy = f"{round(correct / total * 100)}%" if total > 0 else "—"
-        lines.append(
-            f"{prefix} {user_mention}\n"
-            f"　　**{points}** pts　🔥 **{streak}**　✅ {accuracy}"
-        )
 
-    embed.description = "\n\n".join(lines)
+        if rank <= 3:
+            medal = _PODIUM_EMOJIS.get(rank, f"`#{rank}`")
+            podium_lines.append(
+                f"{medal} **#{rank}** — {user_mention}\n"
+                f"　　⭐ **{points}** pts　·　🔥 **{streak}** streak　·　✅ {accuracy}"
+            )
+        else:
+            rest_lines.append(
+                f"`#{rank:>2}` {user_mention}  ·  ⭐ {points} pts  ·  🔥 {streak}"
+            )
+
+    parts: List[str] = ["\n".join(podium_lines)]
+    if rest_lines:
+        parts.append(_SEPARATOR)
+        parts.append("**📋 Contenders — المتنافسون**")
+        parts.append("\n".join(rest_lines))
+
+    embed.description = "\n".join(parts)
     embed.set_footer(
-        text="يُحدَّث تلقائياً عند إغلاق كل تحدٍّ يومي • Updated after each daily challenge closes."
+        text="🔄 التحديث تلقائي فور إغلاق كل تحدي يومي | اكتب /bytedaily-rank لمعرفة ترتيبك الشخصي"
     )
     return embed
 

@@ -27,10 +27,30 @@ _raw_lb_channel_id = os.getenv("BD_LEADERBOARD_CHANNEL_ID", "0")
 BD_LEADERBOARD_CHANNEL_ID: Optional[int] = int(_raw_lb_channel_id) if _raw_lb_channel_id.isdigit() and int(_raw_lb_channel_id) != 0 else None
 
 # ── Embed colours ────────────────────────────────────────────────────────────
-EMBED_COLOR_QUESTION = discord.Color.blurple()     # question post embed
-EMBED_COLOR_STATS    = discord.Color.og_blurple()  # stats summary embed
+EMBED_COLOR_QUESTION = discord.Color(0xF59E0B)     # gold/amber — challenge post
+EMBED_COLOR_LEADERBOARD = discord.Color(0x8B5CF6)  # royal purple — live leaderboard
+EMBED_COLOR_STATS    = discord.Color(0xF59E0B)     # gold accent — results summary
 EMBED_COLOR_CORRECT  = discord.Color.green()       # result: correct
 EMBED_COLOR_WRONG    = discord.Color.red()         # result: wrong
+
+# ── Embed media ──────────────────────────────────────────────────────────────
+EMBED_THUMBNAIL_CHALLENGE: str = "https://cdn-icons-png.flaticon.com/512/3135/3135715.png"
+EMBED_THUMBNAIL_LEADERBOARD: str = "https://cdn-icons-png.flaticon.com/512/3176/3176298.png"
+
+# difficulty (1–3) → (star bar, bilingual label)
+DIFFICULTY_LABELS = {
+    1: ("⭐", "Beginner"),
+    2: ("⭐⭐", "Intermediate"),
+    3: ("⭐⭐⭐", "Advanced"),
+}
+
+# Answer button regional-indicator emojis
+CHOICE_EMOJIS = {
+    "A": "🇦",
+    "B": "🇧",
+    "C": "🇨",
+    "D": "🇩",
+}
 
 # ── Persistent view custom_id prefixes ──────────────────────────────────────
 # Pattern: f"{CUSTOM_ID_PREFIX_ANSWER}{poll_id}_{choice}" or f"{CUSTOM_ID_PREFIX_RESULT}{poll_id}"
