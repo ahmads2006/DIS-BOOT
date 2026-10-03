@@ -1,4 +1,4 @@
 # Backwards-compatibility bridge
-from views.onboarding_views import LanguageSelectView, LevelSelectView, OnboardingSpecializationView
+from legacy.views.onboarding_views import LanguageSelectView, LevelSelectView, OnboardingSpecializationView
 
 __all__ = ["LanguageSelectView", "LevelSelectView", "OnboardingSpecializationView"]

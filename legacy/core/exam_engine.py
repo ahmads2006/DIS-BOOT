@@ -10,10 +10,10 @@ from config import (
     QUESTION_TIMEOUT_SECONDS,
     ONBOARDING_COPY
 )
-from core.state import active_exams
-from core.database import db
-from core.logger import log
-from DATA import get_random_questions
+from legacy.core.state import active_exams
+from legacy.core.database import db
+from legacy.core.logger import log
+from legacy.DATA import get_random_questions
 
 
 def find_role_smart(guild: discord.Guild, role_key: str) -> Optional[discord.Role]:
@@ -133,7 +133,7 @@ async def send_next_question(bot: discord.Client, user: discord.User, dm_channel
     if not exam:
         return
 
-    from views.exam_views import QuestionView
+    from legacy.views.exam_views import QuestionView
 
     current_idx = exam["index"]
     total = len(exam["selected_questions"])

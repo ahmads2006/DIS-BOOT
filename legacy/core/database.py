@@ -1,6 +1,6 @@
 import time
 from typing import Dict, List, Optional, Any
-from core.logger import log
+from legacy.core.logger import log
 from config import DATABASE_URL
 
 try:

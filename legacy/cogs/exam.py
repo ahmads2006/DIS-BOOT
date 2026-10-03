@@ -1,9 +1,9 @@
 import discord
 from discord import app_commands
 from discord.ext import commands
-from views.exam_views import ExamSelectView
-from core.state import active_exams
-from core.logger import log
+from legacy.views.exam_views import ExamSelectView
+from legacy.core.state import active_exams
+from legacy.core.logger import log
 
 class ExamCog(commands.Cog, name="Exam"):
     def __init__(self, bot: commands.Bot):

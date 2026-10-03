@@ -46,3 +46,14 @@ You have two options:
 [2026-09-05 18:09:19] [INFO] [discord_bot]: Recorded exam to Supabase: user=1064935519663960166, role=backend, passed=True
 [2026-09-05 18:26:14] [INFO] [discord_bot]: API Server stopped.
 [2026-09-05 18:26:46] [INFO] [discord_bot]: API Server stopped.
+[2026-10-03 19:39:23] [INFO] [discord_bot]: Starting bot initialization...
+[2026-10-03 19:39:24] [INFO] [discord_bot]: ✅ Connected to Supabase PostgreSQL database successfully!
+[2026-10-03 19:39:24] [INFO] [discord_bot]: Loaded extension: legacy.cogs.onboarding
+[2026-10-03 19:39:24] [INFO] [discord_bot]: Loaded extension: legacy.cogs.exam
+[2026-10-03 19:39:24] [INFO] [discord_bot]: Loaded extension: legacy.cogs.admin
+[2026-10-03 19:39:24] [INFO] [discord_bot]: Loaded extension: legacy.cogs.stats
+[2026-10-03 19:39:24] [INFO] [discord_bot]: Synced 7 slash commands to Guild ID: 1464310306892415129
+[2026-10-03 19:39:24] [INFO] [discord_bot]: Registered Persistent ExamPanelLaunchView.
+[2026-10-03 19:39:24] [INFO] [discord_bot]: ⚡ Async API Server running at http://0.0.0.0:5000
+[2026-10-03 19:39:29] [INFO] [discord_bot]: 🤖 Bot is online as Role+ExamBot#2564 (ID: 1465662310139035775)
+[2026-10-03 19:39:29] [INFO] [discord_bot]: Connected Guilds: ['Programming & Dev']

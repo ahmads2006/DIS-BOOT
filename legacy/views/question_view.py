@@ -1,4 +1,4 @@
 # Backwards-compatibility bridge
-from views.exam_views import QuestionView
+from legacy.views.exam_views import QuestionView
 
 __all__ = ["QuestionView"]

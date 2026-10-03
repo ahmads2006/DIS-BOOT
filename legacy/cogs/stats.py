@@ -1,7 +1,7 @@
 import discord
 from discord import app_commands
 from discord.ext import commands
-from core.database import db
+from legacy.core.database import db
 from config import ROLE_MAP
 
 class StatsCog(commands.Cog, name="Stats"):

@@ -3,9 +3,9 @@ import os
 import discord
 from discord.ext import commands
 from config import TOKEN, GUILD_ID
-from core.logger import log
-from core.database import db
-from api.server import AsyncAPIServer
+from legacy.core.logger import log
+from legacy.core.database import db
+from legacy.api.server import AsyncAPIServer
 
 intents = discord.Intents.all()
 
@@ -26,10 +26,10 @@ class DeveloperBot(commands.Bot):
 
         # تحميل الموديولات (Cogs)
         initial_extensions = [
-            "cogs.onboarding",
-            "cogs.exam",
-            "cogs.admin",
-            "cogs.stats",
+            "legacy.cogs.onboarding",
+            "legacy.cogs.exam",
+            "legacy.cogs.admin",
+            "legacy.cogs.stats",
         ]
 
         for ext in initial_extensions:
@@ -53,7 +53,7 @@ class DeveloperBot(commands.Bot):
             log.error(f"Error syncing slash commands: {e}")
 
         # تسجيل الواجهات الدائمة (Persistent Views)
-        from views.exam_views import ExamPanelLaunchView
+        from legacy.views.exam_views import ExamPanelLaunchView
         self.add_view(ExamPanelLaunchView(self))
         log.info("Registered Persistent ExamPanelLaunchView.")
 

@@ -1,8 +1,8 @@
 import discord
 from aiohttp import web
 from config import BOT_API_KEY, API_HOST, API_PORT
-from core.logger import log
-from core.exam_engine import start_exam_core, send_next_question
+from legacy.core.logger import log
+from legacy.core.exam_engine import start_exam_core, send_next_question
 
 class AsyncAPIServer:
     def __init__(self, bot: discord.Client):

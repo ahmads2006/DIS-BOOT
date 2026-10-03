@@ -1,9 +1,9 @@
 import discord
 from discord.ext import commands
 from config import RULES_ACCEPTED_ROLE_NAMES, ONBOARDING_INITIAL_PROMPT
-from core.state import onboarding_sent_to
-from core.logger import log
-from views.onboarding_views import LanguageSelectView
+from legacy.core.state import onboarding_sent_to
+from legacy.core.logger import log
+from legacy.views.onboarding_views import LanguageSelectView
 
 class OnboardingCog(commands.Cog, name="Onboarding"):
     def __init__(self, bot: commands.Bot):

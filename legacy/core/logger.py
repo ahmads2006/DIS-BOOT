@@ -28,7 +28,7 @@ def setup_logger(name: str = "discord_bot") -> logging.Logger:
 
     # File Handler
     try:
-        log_file = Path(__file__).parent.parent / "bot.log"
+        log_file = Path(__file__).parent.parent.parent / "bot.log"
         file_handler = logging.FileHandler(log_file, encoding="utf-8")
         file_handler.setFormatter(log_format)
         file_handler.setLevel(logging.DEBUG)

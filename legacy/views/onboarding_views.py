@@ -1,8 +1,8 @@
 import discord
 from discord.ui import View, Button
 from config import ONBOARDING_COPY, ROLE_MAP
-from core.logger import log
-from core.exam_engine import start_exam_core, send_next_question
+from legacy.core.logger import log
+from legacy.core.exam_engine import start_exam_core, send_next_question
 
 class LanguageSelectView(View):
     """الخطوة 1: اختيار لغة التفاعل"""

@@ -1,7 +1,7 @@
 import discord
 from discord.ui import View, Button, Select
-from core.logger import log
-from core.exam_engine import start_exam_core, send_next_question, process_answer, handle_exam_timeout
+from legacy.core.logger import log
+from legacy.core.exam_engine import start_exam_core, send_next_question, process_answer, handle_exam_timeout
 from config import ONBOARDING_COPY
 
 # ──────────────────────────────────────────────────────

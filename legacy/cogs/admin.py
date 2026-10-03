@@ -2,8 +2,8 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 from typing import Optional
-from core.database import db
-from core.state import active_exams
+from legacy.core.database import db
+from legacy.core.state import active_exams
 from config import ROLE_MAP
 import datetime
 
@@ -84,7 +84,7 @@ class AdminCog(commands.Cog, name="Admin"):
     @app_commands.checks.has_permissions(administrator=True)
     async def setup_exam_panel(self, interaction: discord.Interaction, channel: Optional[discord.TextChannel] = None):
         target_channel = channel or interaction.channel
-        from views.exam_views import ExamPanelLaunchView
+        from legacy.views.exam_views import ExamPanelLaunchView
 
         embed = discord.Embed(
             title="🧪 نظام الاختبارات وتحديد المسار البرمجي | Technical Exam System",
@@ -128,7 +128,7 @@ class AdminCog(commands.Cog, name="Admin"):
     async def setup_exam_panel_prefix(self, ctx, channel: Optional[discord.TextChannel] = None):
         """نسخة البريفكس للأمر: !setup-exam-panel"""
         target_channel = channel or ctx.channel
-        from views.exam_views import ExamPanelLaunchView
+        from legacy.views.exam_views import ExamPanelLaunchView
 
         embed = discord.Embed(
             title="🧪 نظام الاختبارات وتحديد المسار البرمجي | Technical Exam System",
