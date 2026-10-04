@@ -29,6 +29,28 @@ class PollDurationError(ValueError):
     """Raised when a duration change would set ends_at in the past (or is otherwise invalid)."""
 
 
+def ensure_utc(value: Any) -> datetime:
+    """
+    Coerce DB/asyncpg/ISO values into an aware UTC datetime.
+    Prevents naive/aware comparison crashes that silently kill the scheduler tick.
+    """
+    if value is None:
+        return datetime.now(timezone.utc)
+
+    if isinstance(value, datetime):
+        dt = value
+    elif isinstance(value, str):
+        text = value.strip().replace("Z", "+00:00")
+        dt = datetime.fromisoformat(text)
+    else:
+        # asyncpg may occasionally surface unexpected types — fail safe
+        raise TypeError(f"Unsupported datetime value type: {type(value)!r}")
+
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc)
+
+
 def resolve_ends_at(poll: Dict[str, Any]) -> datetime:
     """
     Return the absolute UTC close time for a poll.
@@ -36,14 +58,14 @@ def resolve_ends_at(poll: Dict[str, Any]) -> datetime:
     """
     ends_at = poll.get("ends_at")
     if ends_at is not None:
-        if ends_at.tzinfo is None:
-            ends_at = ends_at.replace(tzinfo=timezone.utc)
-        return ends_at
+        return ensure_utc(ends_at)
 
-    opened_at = poll.get("opened_at") or datetime.now(timezone.utc)
-    if opened_at.tzinfo is None:
-        opened_at = opened_at.replace(tzinfo=timezone.utc)
-    return opened_at + timedelta(seconds=ANSWER_WINDOW_SECONDS)
+    opened_at = poll.get("opened_at")
+    if opened_at is not None:
+        return ensure_utc(opened_at) + timedelta(seconds=ANSWER_WINDOW_SECONDS)
+
+    return datetime.now(timezone.utc) + timedelta(seconds=ANSWER_WINDOW_SECONDS)
+
 
 
 async def create_poll(
@@ -59,8 +81,8 @@ async def create_poll(
     """
     if ends_at is None:
         ends_at = datetime.now(timezone.utc) + timedelta(seconds=ANSWER_WINDOW_SECONDS)
-    elif ends_at.tzinfo is None:
-        ends_at = ends_at.replace(tzinfo=timezone.utc)
+    else:
+        ends_at = ensure_utc(ends_at)
 
     return await poll_repo.create(
         question_id,

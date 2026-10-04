@@ -52,9 +52,10 @@ from .views import (
     DynamicResultButton,
 )
 
-# Re-check ends_at at least this often so /bytedaily-extend|reduce take effect promptly
-_WAKE_CHUNK_SECONDS = 30.0
-# If nothing is open and posting fails, back off before retrying
+# Re-check ends_at frequently so expiry / extend / reduce are honored promptly.
+# Using discord.ext.tasks (not a bare create_task) so the loop auto-recovers
+# after unexpected exceptions instead of dying silently on Render.
+_CHECK_INTERVAL_SECONDS = 15
 _EMPTY_RETRY_SECONDS = 60.0
 
 
@@ -65,8 +66,6 @@ class ByteDailyScheduler:
         self.bot = bot
         self._is_processing: bool = False
         self._dynamic_items_registered: bool = False
-        self._cycle_task: Optional[asyncio.Task] = None
-        self._stop_event: asyncio.Event = asyncio.Event()
         self._wake_event: asyncio.Event = asyncio.Event()
 
     # ------------------------------------------------------------------ #
@@ -88,18 +87,14 @@ class ByteDailyScheduler:
             log.error(f"ByteDaily: Failed to register dynamic items: {e}")
 
     def start(self) -> None:
-        """Register dynamic items (if needed) and start the continuous rolling cycle."""
+        """Register dynamic items and start the ends_at watchdog loop."""
         self.register_dynamic_items()
 
-        self._stop_event.clear()
-        if self._cycle_task is None or self._cycle_task.done():
-            self._cycle_task = asyncio.create_task(
-                self._continuous_cycle(),
-                name="bytedaily-continuous-cycle",
-            )
+        if not self._check_loop.is_running():
+            self._check_loop.start()
             log.info(
-                "ByteDaily: Continuous rolling cycle started "
-                "(driven by poll ends_at, not wall-clock hours)."
+                "ByteDaily: Scheduler check loop started "
+                f"(every {_CHECK_INTERVAL_SECONDS}s, driven by poll ends_at)."
             )
 
         if not self._midnight_generate.is_running():
@@ -113,13 +108,11 @@ class ByteDailyScheduler:
             )
 
     def stop(self) -> None:
-        """Stop the continuous cycle and midnight generation loop."""
-        self._stop_event.set()
-        self._wake_event.set()  # unblock any pending sleep
-        if self._cycle_task and not self._cycle_task.done():
-            self._cycle_task.cancel()
-            log.info("ByteDaily: Continuous rolling cycle stopped.")
-        self._cycle_task = None
+        """Stop the scheduler and midnight generation loops."""
+        self._wake_event.set()
+        if self._check_loop.is_running():
+            self._check_loop.cancel()
+            log.info("ByteDaily: Scheduler check loop stopped.")
 
         if self._midnight_generate.is_running():
             self._midnight_generate.cancel()
@@ -128,47 +121,50 @@ class ByteDailyScheduler:
     def nudge(self) -> None:
         """Wake the cycle early (e.g. after force-cycle / duration change)."""
         self._wake_event.set()
+        # Also force an immediate extra evaluation on the next available tick
+        log.info("[Scheduler] Nudge received — will re-evaluate ends_at on next tick.")
 
     # ------------------------------------------------------------------ #
-    # Continuous cycle                                                     #
+    # ends_at watchdog (discord.ext.tasks — resilient on Render)            #
     # ------------------------------------------------------------------ #
 
-    async def _continuous_cycle(self) -> None:
+    @tasks.loop(seconds=_CHECK_INTERVAL_SECONDS)
+    async def _check_loop(self) -> None:
         """
-        Main loop:
-          ensure active poll → sleep until ends_at → rollover → repeat.
-        Survives restarts by reading ends_at from Supabase on every wake.
+        Periodic ends_at check. discord.ext.tasks continues after exceptions
+        (unlike a bare asyncio.create_task that dies permanently).
         """
+        log.info("[Scheduler] Checking active challenge...")
+
+        if not BD_CHANNEL_ID:
+            log.warning("[Scheduler] BD_CHANNEL_ID not configured — skipping tick.")
+            return
+
+        if self._is_processing:
+            log.info("[Scheduler] Previous tick still running — skipping overlapping tick.")
+            return
+
+        self._is_processing = True
+        try:
+            await self._cycle_step()
+        except Exception:
+            # logger.exception so Render always shows a full traceback
+            log.exception("[Scheduler] Unhandled error during cycle tick — will retry next interval.")
+        finally:
+            self._is_processing = False
+
+    @_check_loop.before_loop
+    async def _before_check_loop(self) -> None:
         await self.bot.wait_until_ready()
-        log.info("ByteDaily: Bot ready — evaluating active challenge ends_at.")
-
-        # Re-attach answer buttons on the live challenge message after restart
+        log.info("[Scheduler] Bot ready — initial ends_at evaluation beginning.")
         try:
             await self.rebind_active_challenge_view()
-        except Exception as e:
-            log.warning(f"ByteDaily: Could not rebind active challenge view: {e}")
+        except Exception:
+            log.exception("[Scheduler] Failed to rebind active challenge view on startup.")
 
-        while not self._stop_event.is_set():
-            if not BD_CHANNEL_ID:
-                await self._interruptible_sleep(_EMPTY_RETRY_SECONDS)
-                continue
-
-            if self._is_processing:
-                await self._interruptible_sleep(1.0)
-                continue
-
-            self._is_processing = True
-            try:
-                delay = await self._cycle_step()
-            except Exception as e:
-                log.error(f"ByteDaily: Error in continuous cycle step: {e}", exc_info=True)
-                delay = _EMPTY_RETRY_SECONDS
-            finally:
-                self._is_processing = False
-
-            if self._stop_event.is_set():
-                break
-            await self._interruptible_sleep(delay)
+    @_check_loop.error
+    async def _check_loop_error(self, error: Exception) -> None:
+        log.exception(f"[Scheduler] Check loop error handler caught: {error}")
 
     async def rebind_active_challenge_view(self) -> None:
         """
@@ -177,6 +173,7 @@ class ByteDailyScheduler:
         """
         open_poll = await poll_service.get_open_poll()
         if not open_poll or not open_poll.get("message_id"):
+            log.info("[Scheduler] No open poll message to rebind.")
             return
 
         channel = await self._resolve_channel(open_poll.get("channel_id"))
@@ -188,73 +185,92 @@ class ByteDailyScheduler:
             view = ByteDailyAnswerView(poll_id=int(open_poll["id"]), disabled=False)
             await msg.edit(view=view)
             log.info(
-                f"ByteDaily: Rebound answer buttons on message {msg.id} "
+                f"[Scheduler] Rebound answer buttons on message {msg.id} "
                 f"for open poll #{open_poll['id']}."
             )
         except discord.NotFound:
             log.warning(
-                f"ByteDaily: Open poll #{open_poll['id']} message "
+                f"[Scheduler] Open poll #{open_poll['id']} message "
                 f"{open_poll.get('message_id')} not found for view rebind."
             )
         except Exception as e:
-            log.warning(f"ByteDaily: Failed rebinding challenge view: {e}")
+            log.warning(f"[Scheduler] Failed rebinding challenge view: {e}")
 
-    async def _cycle_step(self) -> float:
-        """
-        One evaluation of scheduler state.
-        Returns how many seconds to sleep before the next evaluation.
-        """
+    async def _cycle_step(self) -> None:
+        """Evaluate poll state and rollover when ends_at has passed."""
         now = datetime.now(timezone.utc)
 
         open_poll = await poll_service.get_open_poll()
         if open_poll:
-            ends_at = poll_service.resolve_ends_at(open_poll)
+            try:
+                ends_at = poll_service.resolve_ends_at(open_poll)
+            except Exception:
+                log.exception(
+                    f"[Scheduler] Failed to parse ends_at for poll #{open_poll.get('id')} "
+                    f"(raw ends_at={open_poll.get('ends_at')!r}, "
+                    f"opened_at={open_poll.get('opened_at')!r})."
+                )
+                return
+
             delay = (ends_at - now).total_seconds()
+            log.info(
+                f"[Scheduler] Open poll #{open_poll['id']} status=open | "
+                f"now={now.isoformat()} | ends_at={ends_at.isoformat()} | "
+                f"remaining={delay:.1f}s"
+            )
 
             if delay <= 0:
                 log.info(
-                    f"ByteDaily: Poll #{open_poll['id']} ends_at reached "
-                    f"({ends_at.isoformat()}) — starting automated handover."
+                    f"[Scheduler] Poll #{open_poll['id']} EXPIRED "
+                    f"({-delay:.1f}s overdue) — starting automated handover."
                 )
-                await self._rollover(open_poll["id"])
-                return 1.0  # briefly yield, then wait on the new poll's ends_at
-
-            chunk = min(delay, _WAKE_CHUNK_SECONDS)
-            log.debug(
-                f"ByteDaily: Poll #{open_poll['id']} live — "
-                f"{delay:.0f}s until ends_at; sleeping {chunk:.0f}s."
-            )
-            return chunk
+                await self._rollover(int(open_poll["id"]))
+            return
 
         # No open poll — finish any leftover closed poll, then post immediately
         closed_poll = await poll_service.get_closed_poll()
         if closed_poll:
             log.info(
-                f"ByteDaily: Found leftover closed poll #{closed_poll['id']} — "
-                "marking deleted and posting next challenge immediately."
+                f"[Scheduler] Leftover closed poll #{closed_poll['id']} found — "
+                "marking deleted and posting next challenge."
             )
-            await self._delete_poll(closed_poll["id"])
+            await self._delete_poll(int(closed_poll["id"]))
 
-        log.info("ByteDaily: No active challenge — posting next question now.")
+        log.info("[Scheduler] No active challenge — posting next question now.")
         await self._post_question()
-        return 1.0
 
     async def _rollover(self, poll_id: int) -> None:
         """Close → delete → immediately launch the next challenge."""
-        await self._close_poll(poll_id)
-        await self._delete_poll(poll_id)
-        await self._post_question()
-        log.info(f"ByteDaily: Handover complete after poll #{poll_id}.")
-
-    async def _interruptible_sleep(self, seconds: float) -> None:
-        """Sleep up to `seconds`, but wake early on stop/nudge."""
-        if seconds <= 0:
-            return
-        self._wake_event.clear()
+        log.info(f"[Scheduler] Rollover begin for poll #{poll_id}")
         try:
-            await asyncio.wait_for(self._wake_event.wait(), timeout=seconds)
-        except asyncio.TimeoutError:
-            pass
+            await self._close_poll(poll_id)
+        except Exception:
+            log.exception(
+                f"[Scheduler] _close_poll failed for #{poll_id} — "
+                "attempting mark-deleted + post anyway."
+            )
+            try:
+                await self._delete_poll(poll_id)
+            except Exception:
+                log.exception(f"[Scheduler] _delete_poll also failed for #{poll_id}")
+            try:
+                await self._post_question()
+            except Exception:
+                log.exception("[Scheduler] Emergency post after failed close also failed.")
+            return
+
+        try:
+            await self._delete_poll(poll_id)
+        except Exception:
+            log.exception(f"[Scheduler] _delete_poll failed for #{poll_id}")
+
+        try:
+            await self._post_question()
+        except Exception:
+            log.exception(f"[Scheduler] _post_question failed after closing #{poll_id}")
+            return
+
+        log.info(f"[Scheduler] Handover complete after poll #{poll_id}.")
 
     # ------------------------------------------------------------------ #
     # Midnight AI generation — fires once daily at 00:00 UTC              #
@@ -414,14 +430,25 @@ class ByteDailyScheduler:
                 "skipping public results message; still sending personal DMs."
             )
 
-        # Personal DM reports (does not replace the public channel summary)
-        await self._dm_personal_results(
-            poll_id=poll_id,
-            question=question,
-            footer_icon_url=footer_icon,
-        )
+        # Personal DM reports — never abort the public close / rollover chain
+        try:
+            await self._dm_personal_results(
+                poll_id=poll_id,
+                question=question,
+                footer_icon_url=footer_icon,
+            )
+        except Exception:
+            log.exception(
+                f"[Scheduler] Personal result DMs failed for poll #{poll_id} — "
+                "continuing rollover."
+            )
 
-        await leaderboard_service.refresh_leaderboard_embed(self.bot)
+        try:
+            await leaderboard_service.refresh_leaderboard_embed(self.bot)
+        except Exception:
+            log.exception(
+                f"[Scheduler] Leaderboard refresh failed after closing poll #{poll_id}."
+            )
 
     async def _dm_personal_results(
         self,
