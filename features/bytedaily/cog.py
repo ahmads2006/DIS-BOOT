@@ -311,6 +311,7 @@ class ByteDailyCog(commands.Cog, name="ByteDaily"):
                 poll_id=open_poll["id"],
                 minutes_delta=total_minutes,
             )
+            self.scheduler.nudge()
             unix = result["ends_at_unix"]
             await interaction.followup.send(
                 f"✅ تم تمديد وقت التحدي بنجاح! ينتهي الآن: <t:{unix}:F> (<t:{unix}:R>)",
@@ -381,6 +382,7 @@ class ByteDailyCog(commands.Cog, name="ByteDaily"):
                 poll_id=open_poll["id"],
                 minutes_delta=-total_minutes,
             )
+            self.scheduler.nudge()
             unix = result["ends_at_unix"]
             await interaction.followup.send(
                 f"⏱️ تم تقليص وقت التحدي! ينتهي الآن: <t:{unix}:F> (<t:{unix}:R>)",

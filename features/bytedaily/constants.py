@@ -11,9 +11,14 @@ from typing import Optional
 import discord
 
 # ── Timing ──────────────────────────────────────────────────────────────────
-POST_HOUR_UTC: int = 12                      # 12:00 PM UTC daily post hour
-ANSWER_WINDOW_SECONDS: int = 12 * 60 * 60     # 12 hours — members have this long to answer
-CLEANUP_DELAY_SECONDS: int = 12 * 60 * 60     # 12 hours after close — then delete + next question
+# Default active challenge duration from publication (not a wall-clock hour).
+# The continuous rolling cycle uses each poll's ends_at = opened_at + this window.
+ANSWER_WINDOW_SECONDS: int = 12 * 60 * 60     # 12 hours from post → auto handover
+
+# Legacy / unused by the continuous cycle (kept for reference / older docs):
+POST_HOUR_UTC: int = 12
+CLEANUP_DELAY_SECONDS: int = 12 * 60 * 60
+
 
 # ── Scoring ──────────────────────────────────────────────────────────────────
 POINTS_CORRECT: int = 10      # points awarded for a correct answer
