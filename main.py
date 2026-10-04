@@ -101,4 +101,43 @@ if __name__ == "__main__":
         log.critical("Missing DISCORD_TOKEN in environment or .env file!")
         raise RuntimeError("DISCORD_TOKEN is missing. Please set it in .env file.")
 
-    bot.run(TOKEN)
+    async def _start_with_rate_limit_retry() -> None:
+        """
+        Start the bot with backoff on Discord global 429s.
+
+        Render free-tier cold starts / rapid auto-deploys can hit Discord's
+        global rate limit during login. Retrying avoids a hard deploy crash.
+        """
+        max_attempts = 8
+        base_delay = 15  # seconds
+
+        for attempt in range(1, max_attempts + 1):
+            try:
+                await bot.start(TOKEN)
+                return
+            except discord.HTTPException as e:
+                if e.status != 429 or attempt >= max_attempts:
+                    raise
+
+                retry_after = getattr(e, "retry_after", None)
+                if retry_after is None:
+                    try:
+                        raw = e.response.headers.get("Retry-After") if e.response else None
+                        retry_after = float(raw) if raw else None
+                    except Exception:
+                        retry_after = None
+
+                delay = max(float(retry_after or 0), float(base_delay * attempt))
+                log.warning(
+                    f"Discord rate-limited login (429). "
+                    f"Attempt {attempt}/{max_attempts} — sleeping {delay:.0f}s before retry..."
+                )
+                try:
+                    if not bot.is_closed():
+                        await bot.close()
+                except Exception:
+                    pass
+                await asyncio.sleep(delay)
+
+    asyncio.run(_start_with_rate_limit_retry())
+
