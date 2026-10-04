@@ -40,13 +40,23 @@ def build_challenge_embed(
     closes_unix = int(closes_at.timestamp())
 
     q_text = str(question.get("question_text") or "").strip()
+    divider = "`──────────────────────────────`"
+    options_block = (
+        f"🇦 **[A]** {question.get('choice_a', '')}\n"
+        f"{divider}\n"
+        f"\u200b\n"
+        f"🇧 **[B]** {question.get('choice_b', '')}\n"
+        f"{divider}\n"
+        f"\u200b\n"
+        f"🇨 **[C]** {question.get('choice_c', '')}\n"
+        f"{divider}\n"
+        f"\u200b\n"
+        f"🇩 **[D]** {question.get('choice_d', '')}"
+    )
     description = (
         f"> **{q_text}**\n\n"
         f"**الخيارات / Options**\n"
-        f"🇦  `{question.get('choice_a', '')}`\n"
-        f"🇧  `{question.get('choice_b', '')}`\n"
-        f"🇨  `{question.get('choice_c', '')}`\n"
-        f"🇩  `{question.get('choice_d', '')}`"
+        f"{options_block}"
     )
 
     embed = discord.Embed(
