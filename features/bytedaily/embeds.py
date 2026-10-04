@@ -10,6 +10,8 @@ import discord
 from .constants import (
     EMBED_COLOR_QUESTION,
     EMBED_COLOR_STATS,
+    EMBED_COLOR_CORRECT,
+    EMBED_COLOR_WRONG,
     EMBED_THUMBNAIL_CHALLENGE,
     DIFFICULTY_LABELS,
 )
@@ -112,6 +114,84 @@ def build_results_embed(
     )
     embed.set_footer(
         text="DevQuest Engine • اضغط الزر لمعرفة نتيجتك الشخصية",
+        icon_url=footer_icon_url,
+    )
+    return embed
+
+
+_CHOICE_KEYS = {
+    "A": "choice_a",
+    "B": "choice_b",
+    "C": "choice_c",
+    "D": "choice_d",
+}
+
+
+def _choice_label(question: Dict[str, Any], letter: str) -> str:
+    """Format `A — option text` for a choice letter."""
+    key = _CHOICE_KEYS.get(str(letter).upper())
+    text = (question.get(key) if key else None) or ""
+    letter = str(letter).upper()
+    return f"`{letter}` — {text}".strip(" —") if text else f"`{letter}`"
+
+
+def build_personal_result_dm_embed(
+    *,
+    poll_id: int,
+    question: Dict[str, Any],
+    chosen_answer: str,
+    is_correct: bool,
+    correct_count: int = 0,
+    total_questions: int = 1,
+    footer_icon_url: Optional[str] = None,
+) -> discord.Embed:
+    """
+    Personal DM report sent after a poll closes.
+    Supports a single-question poll today; score fields stay generic for future multi-Q sessions.
+    """
+    total = max(int(total_questions), 1)
+    correct = int(correct_count)
+    percent = round((correct / total) * 100) if total else 0
+    outcome = "🎉 إجابة صحيحة!" if is_correct else "❌ إجابة خاطئة"
+    color = EMBED_COLOR_CORRECT if is_correct else EMBED_COLOR_WRONG
+
+    q_text = str(question.get("question_text") or "").strip()
+    explanation = str(question.get("explanation") or "—").strip()
+    correct_letter = str(question.get("correct_answer") or "?").upper()
+    chosen_letter = str(chosen_answer or "?").upper()
+
+    embed = discord.Embed(
+        title=f"📬 تقرير نتيجتك | ByteDaily #{poll_id}",
+        description=(
+            f"{outcome}\n\n"
+            f"**📊 النتيجة النهائية:** `{correct}/{total}` "
+            f"({percent}%)"
+        ),
+        color=color,
+        timestamp=datetime.now(timezone.utc),
+    )
+    embed.add_field(
+        name="❓ السؤال",
+        value=f"> {q_text}" if q_text else "—",
+        inline=False,
+    )
+    embed.add_field(
+        name="📝 إجابتك",
+        value=_choice_label(question, chosen_letter),
+        inline=True,
+    )
+    embed.add_field(
+        name="✅ الإجابة الصحيحة",
+        value=_choice_label(question, correct_letter),
+        inline=True,
+    )
+    embed.add_field(
+        name="📖 الشرح",
+        value=explanation,
+        inline=False,
+    )
+    embed.set_footer(
+        text="DevQuest Engine • أُرسل تلقائياً بعد إغلاق التحدي",
         icon_url=footer_icon_url,
     )
     return embed

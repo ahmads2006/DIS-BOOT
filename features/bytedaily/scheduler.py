@@ -32,8 +32,12 @@ from discord.ext import tasks
 
 from bridge.legacy_adapter import log
 from .constants import ANSWER_WINDOW_SECONDS, BD_CHANNEL_ID
-from .database.repositories import poll_repo, settings_repo
-from .embeds import build_challenge_embed, build_results_embed
+from .database.repositories import poll_repo, settings_repo, answer_repo
+from .embeds import (
+    build_challenge_embed,
+    build_results_embed,
+    build_personal_result_dm_embed,
+)
 from .services import (
     question_service,
     poll_service,
@@ -323,45 +327,127 @@ class ByteDailyScheduler:
           1) Delete oldest previous_result_message_id
           2) Delete current question → post Results embed as previous_result
           3) Clear current_question_message_id
+          4) DM each participant a personal score report (graceful if DMs closed)
         """
         poll = await poll_repo.get_by_id(poll_id)
         if not poll:
             return
 
         stats = await poll_service.close_poll(poll_id)
-        channel = await self._resolve_channel(poll.get("channel_id"))
-        if not channel:
-            return
-
-        await rolling_window.delete_previous_result(channel)
-        await rolling_window.delete_current_question(
-            channel,
-            fallback_message_id=poll.get("message_id"),
-        )
-
         question = await question_service.get_question_by_id(poll["question_id"])
         footer_icon = self.bot.user.display_avatar.url if self.bot.user else None
-        stats_embed = build_results_embed(
-            question=question,
+
+        channel = await self._resolve_channel(poll.get("channel_id"))
+        if channel:
+            await rolling_window.delete_previous_result(channel)
+            await rolling_window.delete_current_question(
+                channel,
+                fallback_message_id=poll.get("message_id"),
+            )
+
+            stats_embed = build_results_embed(
+                question=question,
+                poll_id=poll_id,
+                stats=stats,
+                footer_icon_url=footer_icon,
+            )
+
+            result_view = ByteDailyResultView(poll_id=poll_id)
+            stats_msg = await channel.send(embed=stats_embed, view=result_view)
+
+            await poll_service.update_message_ids(poll_id, stats_message_id=stats_msg.id)
+            await rolling_window.save_previous_result(stats_msg.id)
+
+            if self.bot.user:
+                await rolling_window.enforce_two_message_window(channel, self.bot.user)
+
+            log.info(
+                f"ByteDaily: Closed poll #{poll_id} — results message {stats_msg.id} "
+                "saved as previous_result_message_id."
+            )
+        else:
+            log.warning(
+                f"ByteDaily: Channel missing for poll #{poll_id} — "
+                "skipping public results message; still sending personal DMs."
+            )
+
+        # Personal DM reports (does not replace the public channel summary)
+        await self._dm_personal_results(
             poll_id=poll_id,
-            stats=stats,
+            question=question,
             footer_icon_url=footer_icon,
         )
 
-        result_view = ByteDailyResultView(poll_id=poll_id)
-        stats_msg = await channel.send(embed=stats_embed, view=result_view)
+        await leaderboard_service.refresh_leaderboard_embed(self.bot)
 
-        await poll_service.update_message_ids(poll_id, stats_message_id=stats_msg.id)
-        await rolling_window.save_previous_result(stats_msg.id)
+    async def _dm_personal_results(
+        self,
+        *,
+        poll_id: int,
+        question: Dict[str, Any],
+        footer_icon_url: Optional[str] = None,
+    ) -> None:
+        """
+        After poll close: DM every participant a structured personal result embed.
+        Groups answers by user_id; skips users with closed DMs (Forbidden).
+        """
+        answers = await answer_repo.get_all_for_poll(poll_id)
+        if not answers:
+            log.info(f"ByteDaily: Poll #{poll_id} has no answers — skipping result DMs.")
+            return
 
-        if self.bot.user:
-            await rolling_window.enforce_two_message_window(channel, self.bot.user)
+        # Group by Discord user_id (one answer per user per poll today)
+        by_user: Dict[int, List[Dict[str, Any]]] = {}
+        for row in answers:
+            uid = int(row["user_id"])
+            by_user.setdefault(uid, []).append(row)
+
+        sent = 0
+        skipped_forbidden = 0
+        failed = 0
+
+        for user_id, user_answers in by_user.items():
+            try:
+                user = self.bot.get_user(user_id) or await self.bot.fetch_user(user_id)
+            except Exception as e:
+                failed += 1
+                log.warning(f"ByteDaily: Could not fetch user {user_id} for result DM: {e}")
+                continue
+
+            correct_count = sum(1 for a in user_answers if a.get("is_correct"))
+            total_questions = len(user_answers)
+            # Primary answer for the (single) question in this poll
+            primary = user_answers[0]
+            embed = build_personal_result_dm_embed(
+                poll_id=poll_id,
+                question=question,
+                chosen_answer=str(primary.get("chosen_answer") or "?"),
+                is_correct=bool(primary.get("is_correct")),
+                correct_count=correct_count,
+                total_questions=total_questions,
+                footer_icon_url=footer_icon_url,
+            )
+
+            try:
+                await user.send(embed=embed)
+                sent += 1
+            except discord.Forbidden:
+                skipped_forbidden += 1
+                log.info(
+                    f"ByteDaily: Cannot DM result to user {user_id} — DMs closed/blocked."
+                )
+            except Exception as e:
+                failed += 1
+                log.warning(f"ByteDaily: Failed sending result DM to user {user_id}: {e}")
+
+            # Light pacing to avoid Discord rate limits on large participant sets
+            await asyncio.sleep(0.35)
 
         log.info(
-            f"ByteDaily: Closed poll #{poll_id} — results message {stats_msg.id} "
-            "saved as previous_result_message_id."
+            f"ByteDaily: Poll #{poll_id} personal result DMs — "
+            f"sent={sent}, dm_closed={skipped_forbidden}, failed={failed}, "
+            f"participants={len(by_user)}."
         )
-        await leaderboard_service.refresh_leaderboard_embed(self.bot)
 
     async def _delete_poll(self, poll_id: int) -> None:
         """
