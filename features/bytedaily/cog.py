@@ -57,16 +57,13 @@ class ByteDailyCog(commands.Cog, name="ByteDaily"):
         """Ensure slash-command failures still get an ephemeral reply."""
         log.error(f"ByteDaily slash command error: {error}", exc_info=True)
         try:
-            if interaction.response.is_done():
-                await interaction.followup.send(
-                    embed=make_error_embed("خطأ", f"فشل تنفيذ الأمر: {error}"),
-                    ephemeral=True,
-                )
-            else:
-                await interaction.response.send_message(
-                    embed=make_error_embed("خطأ", f"فشل تنفيذ الأمر: {error}"),
-                    ephemeral=True,
-                )
+            # Prefer defer + followup; only use response.send_message if never deferred
+            if not interaction.response.is_done():
+                await interaction.response.defer(ephemeral=True)
+            await interaction.followup.send(
+                embed=make_error_embed("خطأ", f"فشل تنفيذ الأمر: {error}"),
+                ephemeral=True,
+            )
         except Exception:
             pass
 
@@ -254,6 +251,12 @@ class ByteDailyCog(commands.Cog, name="ByteDaily"):
                 ephemeral=True,
             )
             return
+
+        # Immediate ack so Discord never times out during the long cycle work
+        await interaction.followup.send(
+            "⏳ جاري فرض الدورة الكاملة (إغلاق → نتائج → لوحة → تحدٍّ جديد)…",
+            ephemeral=True,
+        )
 
         try:
             summary = await self.scheduler.force_cycle(

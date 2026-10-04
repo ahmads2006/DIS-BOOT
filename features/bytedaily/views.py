@@ -9,12 +9,12 @@ Views:
   - ByteDailyAnswerView: Container for the 4 dynamic answer buttons when sending.
   - ByteDailyResultView: Container for the dynamic result button when sending.
 
-Callbacks ALWAYS defer within the first milliseconds so Discord never shows
-"The application didn't respond in time", then reply via followup.send().
+Callbacks ALWAYS call interaction.response.defer(ephemeral=True) as the first
+line of the body so Discord never shows "The application didn't respond in time",
+then reply exclusively via interaction.followup.send().
 """
 
 import re
-from typing import Optional
 import discord
 from discord.ui import Button, DynamicItem, View
 
@@ -32,43 +32,6 @@ from .embeds import build_challenge_embed
 
 _GENERIC_ANSWER_ERROR = "⚠️ حدث خطأ في معالجة الإجابة، يرجى المحاولة مرة أخرى."
 _GENERIC_RESULT_ERROR = "⚠️ حدث خطأ في جلب النتيجة، يرجى المحاولة مرة أخرى."
-
-
-async def _safe_defer(interaction: discord.Interaction) -> bool:
-    """
-    Acknowledge the interaction immediately (must finish within ~3s).
-    Returns True if deferred (or already acknowledged), False on hard failure.
-    """
-    try:
-        if interaction.response.is_done():
-            return True
-        await interaction.response.defer(ephemeral=True)
-        return True
-    except discord.NotFound:
-        # Interaction token expired / unknown — nothing we can do
-        log.warning("ByteDaily: Interaction expired before defer.")
-        return False
-    except discord.HTTPException as e:
-        log.warning(f"ByteDaily: Failed to defer interaction: {e}")
-        return False
-
-
-async def _safe_followup(
-    interaction: discord.Interaction,
-    content: Optional[str] = None,
-    *,
-    embed: Optional[discord.Embed] = None,
-) -> None:
-    """Send an ephemeral followup; never raise to the caller."""
-    try:
-        kwargs = {"ephemeral": True}
-        if content is not None:
-            kwargs["content"] = content
-        if embed is not None:
-            kwargs["embed"] = embed
-        await interaction.followup.send(**kwargs)
-    except Exception as e:
-        log.warning(f"ByteDaily: followup.send failed: {e}")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -106,33 +69,31 @@ class DynamicAnswerButton(
         return cls(poll_id=int(match.group("poll_id")), choice=match.group("choice"))
 
     async def callback(self, interaction: discord.Interaction) -> None:
-        # 1) Acknowledge Discord IMMEDIATELY (prevents 3s timeout)
-        if not await _safe_defer(interaction):
-            return
+        await interaction.response.defer(ephemeral=True)
 
-        # 2) Process answer + respond via followup
+        # Process answer + respond via followup (never response.send_message)
         try:
             poll = await poll_repo.get_by_id(self.poll_id)
             if not poll or poll.get("status") != "open":
-                await _safe_followup(
-                    interaction,
+                await interaction.followup.send(
                     "⚠️ This challenge is already closed. Answers are no longer accepted.",
+                    ephemeral=True,
                 )
                 return
 
             already = await answer_repo.has_answered(self.poll_id, interaction.user.id)
             if already:
-                await _safe_followup(
-                    interaction,
+                await interaction.followup.send(
                     "⚠️ You have already submitted an answer for this challenge.",
+                    ephemeral=True,
                 )
                 return
 
             question = await question_repo.get_by_id(poll["question_id"])
             if not question:
-                await _safe_followup(
-                    interaction,
+                await interaction.followup.send(
                     "⚠️ Question data could not be retrieved.",
+                    ephemeral=True,
                 )
                 return
 
@@ -145,17 +106,17 @@ class DynamicAnswerButton(
             )
 
             if not inserted:
-                await _safe_followup(
-                    interaction,
+                await interaction.followup.send(
                     "⚠️ You have already submitted an answer for this challenge.",
+                    ephemeral=True,
                 )
                 return
 
             # Reply to the user ASAP — before any embed refresh work
-            await _safe_followup(
-                interaction,
+            await interaction.followup.send(
                 f"✅ You selected **{self.choice}**! Your answer is recorded.\n"
                 "Results will be revealed when voting closes.",
+                ephemeral=True,
             )
         except Exception as e:
             log.error(
@@ -163,10 +124,13 @@ class DynamicAnswerButton(
                 f"user={interaction.user.id}: {e}",
                 exc_info=True,
             )
-            await _safe_followup(interaction, _GENERIC_ANSWER_ERROR)
+            try:
+                await interaction.followup.send(_GENERIC_ANSWER_ERROR, ephemeral=True)
+            except Exception:
+                pass
             return
 
-        # 3) Best-effort embed refresh (never blocks / fails the user reply)
+        # Best-effort embed refresh (never blocks / fails the user reply)
         try:
             counts = await answer_repo.count_for_poll(self.poll_id)
             closes_at = poll_service.resolve_ends_at(poll)
@@ -220,30 +184,31 @@ class DynamicResultButton(
         return cls(poll_id=int(match.group("poll_id")))
 
     async def callback(self, interaction: discord.Interaction) -> None:
-        # 1) Acknowledge Discord IMMEDIATELY
-        if not await _safe_defer(interaction):
-            return
+        await interaction.response.defer(ephemeral=True)
 
-        # 2) Build personal result via followup
+        # Build personal result via followup (never response.send_message)
         try:
             user_answer = await answer_repo.get_user_answer(
                 self.poll_id, interaction.user.id
             )
             if not user_answer:
-                await _safe_followup(
-                    interaction,
+                await interaction.followup.send(
                     "ℹ️ You did not participate in this challenge.",
+                    ephemeral=True,
                 )
                 return
 
             poll = await poll_repo.get_by_id(self.poll_id)
             if not poll:
-                await _safe_followup(interaction, "⚠️ Poll not found.")
+                await interaction.followup.send("⚠️ Poll not found.", ephemeral=True)
                 return
 
             question = await question_repo.get_by_id(poll["question_id"])
             if not question:
-                await _safe_followup(interaction, "⚠️ Question data not found.")
+                await interaction.followup.send(
+                    "⚠️ Question data not found.",
+                    ephemeral=True,
+                )
                 return
 
             is_correct = user_answer.get("is_correct", False)
@@ -276,14 +241,17 @@ class DynamicResultButton(
                     inline=False,
                 )
 
-            await _safe_followup(interaction, embed=embed)
+            await interaction.followup.send(embed=embed, ephemeral=True)
         except Exception as e:
             log.error(
                 f"ByteDaily: Result callback error poll=#{self.poll_id} "
                 f"user={interaction.user.id}: {e}",
                 exc_info=True,
             )
-            await _safe_followup(interaction, _GENERIC_RESULT_ERROR)
+            try:
+                await interaction.followup.send(_GENERIC_RESULT_ERROR, ephemeral=True)
+            except Exception:
+                pass
 
 
 # ─────────────────────────────────────────────────────────────────────────────
