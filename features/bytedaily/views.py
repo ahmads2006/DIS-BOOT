@@ -22,7 +22,6 @@ from bridge.legacy_adapter import log
 from .constants import (
     CUSTOM_ID_PREFIX_ANSWER,
     CUSTOM_ID_PREFIX_RESULT,
-    CHOICE_EMOJIS,
     EMBED_COLOR_CORRECT,
     EMBED_COLOR_WRONG,
 )
@@ -83,12 +82,11 @@ class DynamicAnswerButton(
     """Persistent dynamic button for answering A, B, C, or D."""
 
     def __init__(self, poll_id: int, choice: str, disabled: bool = False) -> None:
-        # Put the regional-indicator in the label only — using both emoji= and
-        # label= renders as "A A" in Discord for 🇦/🇧/🇨/🇩.
-        emoji = CHOICE_EMOJIS.get(choice.upper(), choice)
+        # Plain letter labels only. Regional-indicator emojis (🇦) render as "A"
+        # and combined with label="A" show as "A A" in Discord.
         super().__init__(
             Button(
-                label=f"{emoji} {choice}",
+                label=choice.upper(),
                 style=discord.ButtonStyle.primary,
                 custom_id=f"{CUSTOM_ID_PREFIX_ANSWER}{poll_id}_{choice}",
                 disabled=disabled,

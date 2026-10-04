@@ -2,7 +2,7 @@ import asyncio
 import os
 import discord
 from discord.ext import commands
-from config import TOKEN, GUILD_ID
+from config import TOKEN, GUILD_ID, API_PORT
 from legacy.core.logger import log
 from legacy.core.database import db
 from legacy.api.server import AsyncAPIServer
@@ -17,9 +17,19 @@ class DeveloperBot(commands.Bot):
             help_command=None
         )
         self.api_server = None
+        self._keepalive_task = None
 
     async def setup_hook(self):
         log.info("Starting bot initialization...")
+
+        # ── 0. API server FIRST so Render health checks can keep the dyno awake
+        #    while DB/cogs still load (free tier spins down without inbound HTTP).
+        self.api_server = AsyncAPIServer(self)
+        await self.api_server.start()
+        self._keepalive_task = asyncio.create_task(
+            self._render_keepalive_loop(),
+            name="render-keepalive",
+        )
 
         # ── 1. Legacy database ──
         await db.initialize()
@@ -39,7 +49,7 @@ class DeveloperBot(commands.Bot):
                 log.error(f"Failed to load extension {ext}: {e}")
 
         # ── 6. ByteDaily cog ──
-        # BD database pool and scheduler are initialized inside cog_load()
+        # DynamicItems are registered at the start of cog_load() BEFORE DB init.
         try:
             await self.load_extension("features.bytedaily.cog")
             log.info("Loaded extension: features.bytedaily.cog")
@@ -65,18 +75,55 @@ class DeveloperBot(commands.Bot):
         log.info("Registered Persistent ExamPanelLaunchView.")
 
         # ── 9. ByteDaily persistent views ──
-        # DynamicItem classes (DynamicAnswerButton, DynamicResultButton) are
-        # registered globally via bot.add_dynamic_items() inside scheduler.start(),
-        # which is called during ByteDailyCog.cog_load(). No additional
-        # bot.add_view() registration is needed — DynamicItem pattern matching
-        # handles button persistence across restarts automatically.
-        log.info("ByteDaily persistent views: DynamicItems registered via scheduler.")
+        log.info("ByteDaily persistent views: DynamicItems registered in ByteDailyCog.cog_load().")
 
-        # ── 10. API server ──
-        self.api_server = AsyncAPIServer(self)
-        await self.api_server.start()
+    async def _render_keepalive_loop(self) -> None:
+        """
+        Ping our own public health URL every few minutes.
+
+        Render free web services sleep after ~15m without *inbound* HTTP.
+        Discord's gateway is outbound-only, so without this (or an external
+        uptime monitor) the process dies and all clicks/commands time out.
+        """
+        await self.wait_until_ready()
+        base = (
+            os.getenv("KEEPALIVE_URL")
+            or os.getenv("RENDER_EXTERNAL_URL")
+            or ""
+        ).rstrip("/")
+        if not base:
+            # Fall back to localhost — keeps the task harmless in local/dev.
+            base = f"http://127.0.0.1:{API_PORT}"
+            log.warning(
+                "KEEPALIVE_URL / RENDER_EXTERNAL_URL not set — "
+                "pinging localhost only. On Render free tier, set KEEPALIVE_URL "
+                "to your public service URL (or use UptimeRobot on /api/health) "
+                "or the bot will sleep and Discord interactions will time out."
+            )
+
+        url = f"{base}/api/health"
+        interval = int(os.getenv("KEEPALIVE_INTERVAL_SECONDS", "240"))
+
+        try:
+            import aiohttp
+        except ImportError:
+            log.warning("aiohttp missing — render keepalive disabled.")
+            return
+
+        await asyncio.sleep(10)
+        while not self.is_closed():
+            try:
+                timeout = aiohttp.ClientTimeout(total=10)
+                async with aiohttp.ClientSession(timeout=timeout) as session:
+                    async with session.get(url) as resp:
+                        log.info(f"Keepalive ping {url} → HTTP {resp.status}")
+            except Exception as e:
+                log.warning(f"Keepalive ping failed ({url}): {e}")
+            await asyncio.sleep(max(60, interval))
 
     async def close(self):
+        if self._keepalive_task and not self._keepalive_task.done():
+            self._keepalive_task.cancel()
         if self.api_server:
             await self.api_server.stop()
         await super().close()
@@ -95,6 +142,18 @@ async def on_command_error(ctx, error):
         await ctx.send("❌ ليس لديك الصلاحيات الكافية لتنفيذ هذا الأمر.")
     else:
         log.warning(f"Command error: {error}")
+
+@bot.tree.error
+async def on_app_command_error(interaction: discord.Interaction, error: Exception):
+    log.error(f"App command error: {error}", exc_info=True)
+    try:
+        msg = "⚠️ حدث خطأ أثناء تنفيذ الأمر. حاول مرة أخرى."
+        if interaction.response.is_done():
+            await interaction.followup.send(msg, ephemeral=True)
+        else:
+            await interaction.response.send_message(msg, ephemeral=True)
+    except Exception:
+        pass
 
 if __name__ == "__main__":
     if not TOKEN:
@@ -140,4 +199,3 @@ if __name__ == "__main__":
                 await asyncio.sleep(delay)
 
     asyncio.run(_start_with_rate_limit_retry())
-

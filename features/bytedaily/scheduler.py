@@ -73,15 +73,23 @@ class ByteDailyScheduler:
     # Lifecycle                                                            #
     # ------------------------------------------------------------------ #
 
+    def register_dynamic_items(self) -> None:
+        """
+        Register DynamicItem handlers ASAP (before DB init / heavy work).
+        Must be ready before any button click arrives from Discord.
+        """
+        if self._dynamic_items_registered:
+            return
+        try:
+            self.bot.add_dynamic_items(DynamicAnswerButton, DynamicResultButton)
+            self._dynamic_items_registered = True
+            log.info("ByteDaily: Registered DynamicItem classes globally with bot.")
+        except Exception as e:
+            log.error(f"ByteDaily: Failed to register dynamic items: {e}")
+
     def start(self) -> None:
-        """Register dynamic items and start the continuous rolling cycle."""
-        if not self._dynamic_items_registered:
-            try:
-                self.bot.add_dynamic_items(DynamicAnswerButton, DynamicResultButton)
-                self._dynamic_items_registered = True
-                log.info("ByteDaily: Registered DynamicItem classes globally with bot.")
-            except Exception as e:
-                log.error(f"ByteDaily: Failed to register dynamic items: {e}")
+        """Register dynamic items (if needed) and start the continuous rolling cycle."""
+        self.register_dynamic_items()
 
         self._stop_event.clear()
         if self._cycle_task is None or self._cycle_task.done():
@@ -134,6 +142,12 @@ class ByteDailyScheduler:
         await self.bot.wait_until_ready()
         log.info("ByteDaily: Bot ready — evaluating active challenge ends_at.")
 
+        # Re-attach answer buttons on the live challenge message after restart
+        try:
+            await self.rebind_active_challenge_view()
+        except Exception as e:
+            log.warning(f"ByteDaily: Could not rebind active challenge view: {e}")
+
         while not self._stop_event.is_set():
             if not BD_CHANNEL_ID:
                 await self._interruptible_sleep(_EMPTY_RETRY_SECONDS)
@@ -155,6 +169,35 @@ class ByteDailyScheduler:
             if self._stop_event.is_set():
                 break
             await self._interruptible_sleep(delay)
+
+    async def rebind_active_challenge_view(self) -> None:
+        """
+        After restart: edit the open poll's Discord message with a fresh AnswerView
+        so button interactions are routed to this process's DynamicItems.
+        """
+        open_poll = await poll_service.get_open_poll()
+        if not open_poll or not open_poll.get("message_id"):
+            return
+
+        channel = await self._resolve_channel(open_poll.get("channel_id"))
+        if not channel:
+            return
+
+        try:
+            msg = await channel.fetch_message(int(open_poll["message_id"]))
+            view = ByteDailyAnswerView(poll_id=int(open_poll["id"]), disabled=False)
+            await msg.edit(view=view)
+            log.info(
+                f"ByteDaily: Rebound answer buttons on message {msg.id} "
+                f"for open poll #{open_poll['id']}."
+            )
+        except discord.NotFound:
+            log.warning(
+                f"ByteDaily: Open poll #{open_poll['id']} message "
+                f"{open_poll.get('message_id')} not found for view rebind."
+            )
+        except Exception as e:
+            log.warning(f"ByteDaily: Failed rebinding challenge view: {e}")
 
     async def _cycle_step(self) -> float:
         """

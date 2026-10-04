@@ -38,11 +38,37 @@ class ByteDailyCog(commands.Cog, name="ByteDaily"):
         self.scheduler = ByteDailyScheduler(bot)
 
     async def cog_load(self) -> None:
-        """Initialize DB pool and start scheduler loop on extension load."""
-        log.info("ByteDaily: Loading cog — initializing database pool and scheduler...")
+        """Register button handlers first, then DB + scheduler."""
+        log.info("ByteDaily: Loading cog — registering DynamicItems before DB init...")
+        # CRITICAL: register handlers before any await that can delay readiness,
+        # otherwise Discord button clicks expire with "didn't respond in time".
+        self.scheduler.register_dynamic_items()
+
+        log.info("ByteDaily: Initializing database pool and starting cycle...")
         await bd_db.initialize()
         self.scheduler.start()
         log.info("ByteDaily: Cog load complete.")
+
+    async def cog_app_command_error(
+        self,
+        interaction: discord.Interaction,
+        error: app_commands.AppCommandError,
+    ) -> None:
+        """Ensure slash-command failures still get an ephemeral reply."""
+        log.error(f"ByteDaily slash command error: {error}", exc_info=True)
+        try:
+            if interaction.response.is_done():
+                await interaction.followup.send(
+                    embed=make_error_embed("خطأ", f"فشل تنفيذ الأمر: {error}"),
+                    ephemeral=True,
+                )
+            else:
+                await interaction.response.send_message(
+                    embed=make_error_embed("خطأ", f"فشل تنفيذ الأمر: {error}"),
+                    ephemeral=True,
+                )
+        except Exception:
+            pass
 
     async def cog_unload(self) -> None:
         """Stop scheduler loop and close DB pool on extension unload."""
