@@ -197,6 +197,146 @@ class ByteDailyCog(commands.Cog, name="ByteDaily"):
             )
 
     @app_commands.command(
+        name="bytedaily-extend",
+        description="[أدمن] تمديد مدة التحدي النشط حالياً",
+    )
+    @app_commands.default_permissions(administrator=True)
+    @app_commands.describe(
+        hours="عدد الساعات المراد إضافتها",
+        minutes="عدد الدقائق المراد إضافتها (اختياري)",
+    )
+    async def bytedaily_extend(
+        self,
+        interaction: discord.Interaction,
+        hours: int,
+        minutes: int = 0,
+    ) -> None:
+        """Admin command: Extend the active challenge duration."""
+        await interaction.response.defer(ephemeral=True)
+
+        if not interaction.user.guild_permissions.administrator:
+            await interaction.followup.send(
+                embed=make_error_embed("Permission Denied", "Only administrators can run this command."),
+                ephemeral=True,
+            )
+            return
+
+        total_minutes = hours * 60 + minutes
+        if hours < 0 or minutes < 0 or total_minutes <= 0:
+            await interaction.followup.send(
+                embed=make_error_embed(
+                    "قيمة غير صالحة",
+                    "يجب تحديد مدة تمديد موجبة (ساعات و/أو دقائق أكبر من صفر).",
+                ),
+                ephemeral=True,
+            )
+            return
+
+        open_poll = await poll_service.get_open_poll()
+        if not open_poll:
+            await interaction.followup.send(
+                embed=make_error_embed(
+                    "لا يوجد تحدٍّ نشط",
+                    "لا يوجد تحدي ByteDaily مفتوح حالياً لتمديده.",
+                ),
+                ephemeral=True,
+            )
+            return
+
+        try:
+            result = await poll_service.modify_poll_duration(
+                self.bot,
+                poll_id=open_poll["id"],
+                minutes_delta=total_minutes,
+            )
+            unix = result["ends_at_unix"]
+            await interaction.followup.send(
+                f"✅ تم تمديد وقت التحدي بنجاح! ينتهي الآن: <t:{unix}:F> (<t:{unix}:R>)",
+                ephemeral=True,
+            )
+        except poll_service.PollDurationError as e:
+            await interaction.followup.send(
+                embed=make_error_embed("تمديد غير صالح", str(e)),
+                ephemeral=True,
+            )
+        except Exception as e:
+            log.error(f"ByteDaily: /bytedaily-extend error: {e}", exc_info=True)
+            await interaction.followup.send(
+                embed=make_error_embed("Extend Error", f"Failed to extend poll: {e}"),
+                ephemeral=True,
+            )
+
+    @app_commands.command(
+        name="bytedaily-reduce",
+        description="[أدمن] تقليص الوقت المتبقي للتحدي النشط حالياً",
+    )
+    @app_commands.default_permissions(administrator=True)
+    @app_commands.describe(
+        hours="عدد الساعات المراد خصمها",
+        minutes="عدد الدقائق المراد خصمها (اختياري)",
+    )
+    async def bytedaily_reduce(
+        self,
+        interaction: discord.Interaction,
+        hours: int,
+        minutes: int = 0,
+    ) -> None:
+        """Admin command: Reduce the active challenge remaining duration."""
+        await interaction.response.defer(ephemeral=True)
+
+        if not interaction.user.guild_permissions.administrator:
+            await interaction.followup.send(
+                embed=make_error_embed("Permission Denied", "Only administrators can run this command."),
+                ephemeral=True,
+            )
+            return
+
+        total_minutes = hours * 60 + minutes
+        if hours < 0 or minutes < 0 or total_minutes <= 0:
+            await interaction.followup.send(
+                embed=make_error_embed(
+                    "قيمة غير صالحة",
+                    "يجب تحديد مدة تقليص موجبة (ساعات و/أو دقائق أكبر من صفر).",
+                ),
+                ephemeral=True,
+            )
+            return
+
+        open_poll = await poll_service.get_open_poll()
+        if not open_poll:
+            await interaction.followup.send(
+                embed=make_error_embed(
+                    "لا يوجد تحدٍّ نشط",
+                    "لا يوجد تحدي ByteDaily مفتوح حالياً لتقليص وقته.",
+                ),
+                ephemeral=True,
+            )
+            return
+
+        try:
+            result = await poll_service.modify_poll_duration(
+                self.bot,
+                poll_id=open_poll["id"],
+                minutes_delta=-total_minutes,
+            )
+            unix = result["ends_at_unix"]
+            await interaction.followup.send(
+                f"⏱️ تم تقليص وقت التحدي! ينتهي الآن: <t:{unix}:F> (<t:{unix}:R>)",
+                ephemeral=True,
+            )
+        except poll_service.PollDurationError as e:
+            await interaction.followup.send(
+                embed=make_error_embed("تقليص غير صالح", str(e)),
+                ephemeral=True,
+            )
+        except Exception as e:
+            log.error(f"ByteDaily: /bytedaily-reduce error: {e}", exc_info=True)
+            await interaction.followup.send(
+                embed=make_error_embed("Reduce Error", f"Failed to reduce poll: {e}"),
+                ephemeral=True,
+            )
+
+    @app_commands.command(
         name="bytedaily-add-question",
         description="[أدمن] إضافة سؤال جديد يدوياً إلى بنك أسئلة ByteDaily",
     )

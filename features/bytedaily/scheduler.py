@@ -2,15 +2,21 @@
 ByteDaily Scheduler — Manages the question lifecycle loop.
 
 Uses discord.ext.tasks to run a 1-minute periodic loop with three phases:
-  Phase 1 — POST:   Select a question, post embed + answer buttons (A–D).
-                     The poll is saved to bd_polls with status='open'.
-  Phase 2 — CLOSE:  After 12 hours, close voting (disable buttons), award
-                     points, update streaks via bd_upsert_user_stats RPC,
-                     post a public stats summary message, add "Show my result"
-                     button. Poll status set to 'closed'.
-  Phase 3 — DELETE: After 12 more hours (24h total), delete the question message
-                     and the stats message, set poll status to 'deleted', and
-                     immediately post the next daily question.
+  Phase 1 — POST:   Select a question, post embed + answer buttons (A–D),
+                     pin it, and store current_question_message_id.
+  Phase 2 — CLOSE:  After 12 hours, award points/streaks, then roll the
+                     challenge channel window:
+                       1) delete previous_result_message_id
+                       2) delete current question → post Results embed
+                          as the new previous_result_message_id
+                       3) clear current_question_message_id
+  Phase 3 — ADVANCE: After 12 more hours, mark the closed poll deleted
+                     (results message is kept as the rolling previous
+                     result) and post the next daily question.
+
+Rolling window enforcement: the challenge channel may contain at most
+  • 1 Active Question Embed (Pinned)
+  • 1 Previous Poll Results Embed (Unpinned)
 
 The scheduler evaluates timestamps on every 1-minute tick for crash/restart resilience.
 DynamicItems are registered globally once on startup.
@@ -20,7 +26,7 @@ Gemini AI generator service (single API call, Free Tier safe).
 """
 
 from datetime import datetime, time as dt_time, timedelta, timezone
-from typing import Optional
+from typing import Optional, Union
 import discord
 from discord.ext import tasks
 
@@ -30,11 +36,16 @@ from .constants import (
     CLEANUP_DELAY_SECONDS,
     POST_HOUR_UTC,
     BD_CHANNEL_ID,
-    EMBED_COLOR_STATS,
 )
-from .database.repositories import poll_repo
-from .embeds import build_challenge_embed
-from .services import question_service, poll_service, ai_generator_service, leaderboard_service
+from .database.repositories import poll_repo, settings_repo
+from .embeds import build_challenge_embed, build_results_embed
+from .services import (
+    question_service,
+    poll_service,
+    ai_generator_service,
+    leaderboard_service,
+    rolling_window,
+)
 from .views import (
     ByteDailyAnswerView,
     ByteDailyResultView,
@@ -131,6 +142,26 @@ class ByteDailyScheduler:
         """Wait until the bot is ready before the midnight loop starts."""
         await self.bot.wait_until_ready()
 
+    async def _resolve_channel(
+        self,
+        channel_id: Optional[int] = None,
+    ) -> Optional[Union[discord.TextChannel, discord.Thread]]:
+        """Resolve a text channel from cache or API."""
+        target_id = channel_id or BD_CHANNEL_ID
+        if not target_id:
+            return None
+        channel = self.bot.get_channel(target_id)
+        if channel is None:
+            try:
+                channel = await self.bot.fetch_channel(target_id)
+            except Exception as e:
+                log.error(f"ByteDaily: Could not fetch channel {target_id}: {e}")
+                return None
+        if not isinstance(channel, (discord.TextChannel, discord.Thread)):
+            log.error(f"ByteDaily: Channel {target_id} is not a text channel.")
+            return None
+        return channel
+
     async def _tick(self) -> None:
         """Core state machine evaluation executed every minute."""
         if not BD_CHANNEL_ID:
@@ -138,22 +169,19 @@ class ByteDailyScheduler:
 
         now = datetime.now(timezone.utc)
 
-        # 1. Active OPEN poll check
+        # 1. Active OPEN poll check — close when ends_at is reached
         open_poll = await poll_service.get_open_poll()
         if open_poll:
-            opened_at = open_poll['opened_at']
-            if opened_at.tzinfo is None:
-                opened_at = opened_at.replace(tzinfo=timezone.utc)
-            elapsed = (now - opened_at).total_seconds()
-            if elapsed >= ANSWER_WINDOW_SECONDS:
+            ends_at = poll_service.resolve_ends_at(open_poll)
+            if now >= ends_at:
                 log.info(
-                    f"ByteDaily: Open poll #{open_poll['id']} window elapsed "
-                    f"({elapsed:.0f}s >= {ANSWER_WINDOW_SECONDS}s). Closing poll."
+                    f"ByteDaily: Open poll #{open_poll['id']} ended "
+                    f"(ends_at={ends_at.isoformat()}). Closing poll."
                 )
                 await self._close_poll(open_poll['id'])
             return
 
-        # 2. Active CLOSED poll check (awaiting cleanup)
+        # 2. Active CLOSED poll check (awaiting advance to next question)
         closed_poll = await poll_service.get_closed_poll()
         if closed_poll:
             closed_at = closed_poll['closed_at']
@@ -164,7 +192,7 @@ class ByteDailyScheduler:
                 if elapsed >= CLEANUP_DELAY_SECONDS:
                     log.info(
                         f"ByteDaily: Closed poll #{closed_poll['id']} cleanup delay elapsed "
-                        f"({elapsed:.0f}s >= {CLEANUP_DELAY_SECONDS}s). Deleting and advancing."
+                        f"({elapsed:.0f}s >= {CLEANUP_DELAY_SECONDS}s). Advancing cycle."
                     )
                     await self._delete_poll(closed_poll['id'])
                     # If it's already post time today, immediately post next
@@ -198,8 +226,11 @@ class ByteDailyScheduler:
         await self._post_question()
 
     async def _post_question(self, target_channel: Optional[discord.TextChannel] = None) -> None:
-        """Pick next question, build embed + buttons, send message, and record poll."""
-        channel = target_channel or (self.bot.get_channel(BD_CHANNEL_ID) if BD_CHANNEL_ID else None)
+        """
+        Step 3 of the roll — post the new active question, pin it, and track
+        current_question_message_id. Keeps previous_result_message_id intact.
+        """
+        channel = target_channel or await self._resolve_channel()
         if not channel:
             log.error("ByteDaily: Could not find target channel for posting.")
             return
@@ -207,14 +238,15 @@ class ByteDailyScheduler:
         question = await question_service.pick_next_question()
 
         # Create poll record first so the embed title can include poll_id
+        now = datetime.now(timezone.utc)
+        closes_at = now + timedelta(seconds=ANSWER_WINDOW_SECONDS)
         poll_id = await poll_service.create_poll(
             question_id=question['id'],
             channel_id=channel.id,
             message_id=None,
+            ends_at=closes_at,
         )
 
-        now = datetime.now(timezone.utc)
-        closes_at = now + timedelta(seconds=ANSWER_WINDOW_SECONDS)
         footer_icon = self.bot.user.display_avatar.url if self.bot.user else None
         embed = build_challenge_embed(
             question=question,
@@ -239,103 +271,97 @@ class ByteDailyScheduler:
         except Exception as e:
             log.warning(f"ByteDaily: Unexpected error pinning message {msg.id}: {e}")
 
-        # Update message ID on poll record and mark question as asked
+        # Persist IDs: poll row + rolling-window current question
         await poll_service.update_message_ids(poll_id, message_id=msg.id)
+        await rolling_window.save_current_question(msg.id)
         await question_service.record_asked(question_id=question["id"], poll_id=poll_id)
-        log.info(f"ByteDaily: Posted poll #{poll_id} for question #{question['id']} in message {msg.id}")
+
+        # Enforce max 2 bot messages (keep current question + previous result only)
+        if self.bot.user:
+            await rolling_window.enforce_two_message_window(channel, self.bot.user)
+
+        log.info(
+            f"ByteDaily: Posted poll #{poll_id} for question #{question['id']} "
+            f"in message {msg.id} (rolling window current set)."
+        )
 
     async def _close_poll(self, poll_id: int) -> None:
-        """Close voting, award points, edit question message, and post stats message."""
+        """
+        Close voting + roll the challenge channel window:
+          1) Delete oldest previous_result_message_id
+          2) Delete current question → post fresh Results embed as previous_result
+          3) Clear current_question_message_id (no active question until next post)
+        """
         poll = await poll_repo.get_by_id(poll_id)
         if not poll:
             return
 
         stats = await poll_service.close_poll(poll_id)
-        channel = self.bot.get_channel(poll['channel_id'])
+        channel = await self._resolve_channel(poll.get('channel_id'))
         if not channel:
             return
 
-        # Unpin and disable buttons on question message
-        if poll.get('message_id'):
-            try:
-                msg = await channel.fetch_message(poll['message_id'])
-                # Unpin before editing so the channel pin list is clean
-                try:
-                    await msg.unpin()
-                    log.info(f"ByteDaily: Unpinned challenge message {msg.id} on poll close.")
-                except discord.Forbidden:
-                    log.warning(
-                        f"ByteDaily: Cannot unpin message {msg.id} — bot lacks 'Manage Messages' permission."
-                    )
-                except Exception as e:
-                    log.warning(f"ByteDaily: Unexpected error unpinning message {msg.id}: {e}")
-                disabled_view = ByteDailyAnswerView(poll_id=poll_id)
-                for child in disabled_view.children:
-                    child.item.disabled = True
-                await msg.edit(view=disabled_view)
-            except discord.NotFound:
-                log.warning(f"ByteDaily: Question message {poll['message_id']} not found to disable.")
-            except Exception as e:
-                log.error(f"ByteDaily: Error disabling buttons on message {poll['message_id']}: {e}")
+        # Step 1 — purge the previous cycle's results embed
+        await rolling_window.delete_previous_result(channel)
 
-        # Post stats message with "Show my result" button
-        question = await question_service.get_question_by_id(poll['question_id'])
-        stats_embed = discord.Embed(
-            title="📊 BYTE DAILY | نتائج التحدي",
-            description=(
-                f"أُغلق التصويت على تحدي **#{poll_id}**!\n\n"
-                f"**✅ الإجابة الصحيحة:** `{question['correct_answer']}`\n\n"
-                f"**📖 الشرح:**\n> {question['explanation']}\n\n"
-                f"👥 **المشاركون:** {stats['total']}\n"
-                f"✅ **إجابات صحيحة:** {stats['correct']} ({stats['percent_correct']}%)\n"
-                f"❌ **إجابات خاطئة:** {stats['wrong']}"
-            ),
-            color=EMBED_COLOR_STATS,
-            timestamp=datetime.now(timezone.utc),
+        # Step 2 — remove the active question embed (transition to results)
+        await rolling_window.delete_current_question(
+            channel,
+            fallback_message_id=poll.get('message_id'),
         )
-        stats_embed.set_footer(text="DevQuest Engine • اضغط الزر لمعرفة نتيجتك الشخصية")
+
+        question = await question_service.get_question_by_id(poll['question_id'])
+        footer_icon = self.bot.user.display_avatar.url if self.bot.user else None
+        stats_embed = build_results_embed(
+            question=question,
+            poll_id=poll_id,
+            stats=stats,
+            footer_icon_url=footer_icon,
+        )
 
         result_view = ByteDailyResultView(poll_id=poll_id)
         stats_msg = await channel.send(embed=stats_embed, view=result_view)
 
+        # Persist as the rolling previous_result (unpinned by default)
         await poll_service.update_message_ids(poll_id, stats_message_id=stats_msg.id)
-        log.info(f"ByteDaily: Closed poll #{poll_id}, posted stats message {stats_msg.id}")
+        await rolling_window.save_previous_result(stats_msg.id)
+
+        if self.bot.user:
+            await rolling_window.enforce_two_message_window(channel, self.bot.user)
+
+        log.info(
+            f"ByteDaily: Closed poll #{poll_id} — results message {stats_msg.id} "
+            "saved as previous_result_message_id."
+        )
 
         # Refresh the live leaderboard now that points/streaks have been awarded
         await leaderboard_service.refresh_leaderboard_embed(self.bot)
 
     async def _delete_poll(self, poll_id: int) -> None:
-        """Delete Discord messages and mark poll as deleted in DB."""
+        """
+        Mark a closed poll as deleted in the DB.
+
+        Discord results message is intentionally KEPT — it is the rolling
+        previous_result_message_id until the next close cycle deletes it.
+        The question message was already removed during _close_poll.
+        """
         poll = await poll_repo.get_by_id(poll_id)
         if not poll:
             return
 
-        channel = self.bot.get_channel(poll['channel_id'])
+        # Safety: if a stale question message somehow remains and is NOT the
+        # tracked previous_result, remove it. Never delete the rolling result.
+        channel = await self._resolve_channel(poll.get('channel_id'))
         if channel:
-            if poll.get('message_id'):
-                try:
-                    msg = await channel.fetch_message(poll['message_id'])
-                    # Unpin before deleting (best-effort; message may already be unpinned)
-                    try:
-                        await msg.unpin()
-                    except (discord.Forbidden, discord.NotFound):
-                        pass
-                    except Exception:
-                        pass
-                    await msg.delete()
-                except discord.NotFound:
-                    pass
-                except Exception as e:
-                    log.warning(f"ByteDaily: Failed to delete question message {poll['message_id']}: {e}")
-
-            if poll.get('stats_message_id'):
-                try:
-                    stats_msg = await channel.fetch_message(poll['stats_message_id'])
-                    await stats_msg.delete()
-                except discord.NotFound:
-                    pass
-                except Exception as e:
-                    log.warning(f"ByteDaily: Failed to delete stats message {poll['stats_message_id']}: {e}")
+            previous_id = await settings_repo.get_previous_result_message_id()
+            question_msg_id = poll.get('message_id')
+            if question_msg_id and question_msg_id != previous_id:
+                await rolling_window.safe_delete_message(
+                    channel, question_msg_id, label="stale_question"
+                )
 
         await poll_service.mark_deleted(poll_id)
-        log.info(f"ByteDaily: Cleaned up poll #{poll_id} messages and marked as deleted.")
+        log.info(
+            f"ByteDaily: Marked poll #{poll_id} as deleted "
+            "(previous_result embed retained in rolling window)."
+        )

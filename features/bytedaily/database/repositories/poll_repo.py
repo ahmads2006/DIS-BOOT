@@ -5,6 +5,7 @@ All queries run against the bd_db singleton pool.
 Pure SQL via asyncpg — no ORM. Returns plain dicts.
 """
 
+from datetime import datetime
 from typing import Any, Dict, List, Optional
 from ..client import bd_db
 
@@ -13,8 +14,21 @@ async def create(
     question_id: int,
     channel_id: int,
     message_id: Optional[int] = None,
+    ends_at: Optional[datetime] = None,
 ) -> int:
     """Insert a new poll with status='open'. Returns new poll_id."""
+    if ends_at is not None:
+        return await bd_db.fetchval(
+            """
+            INSERT INTO bd_polls (question_id, channel_id, message_id, ends_at)
+            VALUES ($1, $2, $3, $4)
+            RETURNING id
+            """,
+            question_id,
+            channel_id,
+            message_id,
+            ends_at,
+        )
     return await bd_db.fetchval(
         """
         INSERT INTO bd_polls (question_id, channel_id, message_id)
@@ -46,6 +60,28 @@ async def get_latest_by_status(status: str) -> Optional[Dict[str, Any]]:
         """,
         status,
     )
+
+
+async def get_open_poll() -> Optional[Dict[str, Any]]:
+    """Return the most recent open (active) poll, or None."""
+    return await get_latest_by_status("open")
+
+
+async def update_ends_at(poll_id: int, ends_at: datetime) -> bool:
+    """
+    Set ends_at on an open poll. Returns True if a row was updated.
+    Only updates polls that are still status='open'.
+    """
+    result = await bd_db.execute(
+        """
+        UPDATE bd_polls
+        SET ends_at = $2
+        WHERE id = $1 AND status = 'open'
+        """,
+        poll_id,
+        ends_at,
+    )
+    return result.split()[-1] == "1"
 
 
 async def update_status(poll_id: int, status: str) -> None:

@@ -9,6 +9,7 @@ import discord
 
 from .constants import (
     EMBED_COLOR_QUESTION,
+    EMBED_COLOR_STATS,
     EMBED_THUMBNAIL_CHALLENGE,
     DIFFICULTY_LABELS,
 )
@@ -74,6 +75,33 @@ def build_challenge_embed(
 
     embed.set_footer(
         text="DevQuest Engine • أجب واكسب النقاط لرفع ترتيبك في السيرفر!",
+        icon_url=footer_icon_url,
+    )
+    return embed
+
+
+def build_results_embed(
+    question: Dict[str, Any],
+    poll_id: int,
+    stats: Dict[str, Any],
+    footer_icon_url: Optional[str] = None,
+) -> discord.Embed:
+    """Build the previous-poll results embed shown in the rolling window."""
+    embed = discord.Embed(
+        title="📊 BYTE DAILY | نتائج التحدي",
+        description=(
+            f"أُغلق التصويت على تحدي **#{poll_id}**!\n\n"
+            f"**✅ الإجابة الصحيحة:** `{question.get('correct_answer', '?')}`\n\n"
+            f"**📖 الشرح:**\n> {question.get('explanation') or '—'}\n\n"
+            f"👥 **المشاركون:** {stats.get('total', 0)}\n"
+            f"✅ **إجابات صحيحة:** {stats.get('correct', 0)} ({stats.get('percent_correct', 0)}%)\n"
+            f"❌ **إجابات خاطئة:** {stats.get('wrong', 0)}"
+        ),
+        color=EMBED_COLOR_STATS,
+        timestamp=datetime.now(timezone.utc),
+    )
+    embed.set_footer(
+        text="DevQuest Engine • اضغط الزر لمعرفة نتيجتك الشخصية",
         icon_url=footer_icon_url,
     )
     return embed
