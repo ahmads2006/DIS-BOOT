@@ -1,40 +1,42 @@
 ﻿"""
-ByteDaily Leaderboard Service — Live persistent leaderboard embed management.
+ByteDaily Leaderboard Service — Single Static Message architecture.
 
-Maintains a single pinned message in BD_LEADERBOARD_CHANNEL_ID that is
-updated every time a poll closes or an admin forces a refresh.
-
-State persistence:
-  The leaderboard message ID is stored in leaderboard_state.json next to
-  this service's package directory so it survives bot restarts without
-  requiring a new database table.
+Maintains exactly ONE pinned leaderboard message in BD_LEADERBOARD_CHANNEL_ID.
+The message ID is persisted in Supabase (`bd_settings.leaderboard_message_id`)
+so every bot host edits the same message instead of posting duplicates.
 
 Public API:
-  - refresh_leaderboard_embed(bot)  ->  full fetch + edit/create cycle
+  - refresh_leaderboard_embed(bot)  ->  edit-in-place, or purge + create
   - build_leaderboard_embed(top_users)  ->  returns a discord.Embed
 """
 
 import json
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 
 import discord
 
 from bridge.legacy_adapter import log
 from ..constants import BD_LEADERBOARD_CHANNEL_ID, EMBED_COLOR_LEADERBOARD, EMBED_THUMBNAIL_LEADERBOARD
-from ..database.repositories import user_repo
+from ..database.repositories import settings_repo, user_repo
 
 
-# -- State file: persists leaderboard_message_id across restarts --------------
-_STATE_FILE = Path(__file__).parent.parent / "leaderboard_state.json"
+# Legacy local file (migrated once into bd_settings, then ignored)
+_LEGACY_STATE_FILE = Path(__file__).parent.parent / "leaderboard_state.json"
+
+_PODIUM_EMOJIS: Dict[int, str] = {1: "🥇", 2: "🥈", 3: "🥉"}
+_SEPARATOR = "═══════════════════════════════"
+_HISTORY_PURGE_LIMIT = 100
 
 
-def _load_message_id() -> Optional[int]:
-    """Load the saved leaderboard message ID from the state file."""
+# -- Message ID persistence (Supabase bd_settings) -----------------------------
+
+def _load_legacy_message_id() -> Optional[int]:
+    """One-time fallback: read leaderboard_state.json if it still exists."""
     try:
-        if _STATE_FILE.exists():
-            data = json.loads(_STATE_FILE.read_text(encoding="utf-8"))
+        if _LEGACY_STATE_FILE.exists():
+            data = json.loads(_LEGACY_STATE_FILE.read_text(encoding="utf-8"))
             val = data.get("message_id")
             return int(val) if val else None
     except Exception:
@@ -42,22 +44,36 @@ def _load_message_id() -> Optional[int]:
     return None
 
 
-def _save_message_id(message_id: int) -> None:
-    """Persist the leaderboard message ID to the state file."""
-    try:
-        _STATE_FILE.write_text(
-            json.dumps({"message_id": message_id}, indent=2),
-            encoding="utf-8",
+async def _load_message_id() -> Optional[int]:
+    """Load leaderboard_message_id from bd_settings (migrate legacy JSON if needed)."""
+    saved = await settings_repo.get_leaderboard_message_id()
+    if saved:
+        return saved
+
+    legacy = _load_legacy_message_id()
+    if legacy:
+        await settings_repo.set_leaderboard_message_id(legacy)
+        log.info(
+            f"ByteDaily Leaderboard: Migrated legacy message ID {legacy} "
+            "from leaderboard_state.json → bd_settings."
         )
+        try:
+            _LEGACY_STATE_FILE.unlink(missing_ok=True)
+        except Exception:
+            pass
+        return legacy
+    return None
+
+
+async def _save_message_id(message_id: int) -> None:
+    """Persist leaderboard_message_id to bd_settings."""
+    try:
+        await settings_repo.set_leaderboard_message_id(message_id)
     except Exception as e:
-        log.warning(f"ByteDaily Leaderboard: Could not save message ID to state file: {e}")
+        log.warning(f"ByteDaily Leaderboard: Could not save message ID to bd_settings: {e}")
 
 
 # -- Embed builder -------------------------------------------------------------
-
-_PODIUM_EMOJIS: Dict[int, str] = {1: "🥇", 2: "🥈", 3: "🥉"}
-_SEPARATOR = "═══════════════════════════════"
-
 
 def build_leaderboard_embed(top_users: List[Dict[str, Any]]) -> discord.Embed:
     """
@@ -119,23 +135,18 @@ def build_leaderboard_embed(top_users: List[Dict[str, Any]]) -> discord.Embed:
     return embed
 
 
-# -- Main refresh function -----------------------------------------------------
+# -- Channel helpers -----------------------------------------------------------
 
-async def refresh_leaderboard_embed(bot: discord.Client) -> None:
-    """
-    Fetch the top 10 users, build the embed, then:
-      - If a saved message exists: edit it in-place.
-      - Otherwise: send a new message, save its ID, and pin it.
-
-    All errors are caught and logged — this function never raises.
-    Safe to call from the scheduler or any admin command.
-    """
+async def _resolve_leaderboard_channel(
+    bot: discord.Client,
+) -> Optional[Union[discord.TextChannel, discord.Thread]]:
+    """Fetch BD_LEADERBOARD_CHANNEL_ID from cache or API."""
     if not BD_LEADERBOARD_CHANNEL_ID:
         log.warning(
             "ByteDaily Leaderboard: BD_LEADERBOARD_CHANNEL_ID is not configured. "
             "Skipping leaderboard refresh."
         )
-        return
+        return None
 
     channel = bot.get_channel(BD_LEADERBOARD_CHANNEL_ID)
     if channel is None:
@@ -146,55 +157,138 @@ async def refresh_leaderboard_embed(bot: discord.Client) -> None:
                 f"ByteDaily Leaderboard: Channel {BD_LEADERBOARD_CHANNEL_ID} unavailable ({e}). "
                 "Ensure the bot can see that channel."
             )
-            return
+            return None
         except Exception as e:
             log.warning(
                 f"ByteDaily Leaderboard: Failed to fetch channel {BD_LEADERBOARD_CHANNEL_ID}: {e}"
             )
-            return
+            return None
 
     if not isinstance(channel, (discord.TextChannel, discord.Thread)):
         log.warning(
             f"ByteDaily Leaderboard: Channel {BD_LEADERBOARD_CHANNEL_ID} is not a text channel "
             f"(got {type(channel).__name__}). Skipping refresh."
         )
+        return None
+
+    return channel
+
+
+async def _purge_bot_messages(
+    channel: Union[discord.TextChannel, discord.Thread],
+    bot_user: discord.ClientUser,
+) -> int:
+    """
+    Delete previous bot messages in the leaderboard channel so only the
+    new static message remains. Returns the number of deleted messages.
+    """
+    deleted = 0
+    try:
+        async for msg in channel.history(limit=_HISTORY_PURGE_LIMIT):
+            if msg.author.id != bot_user.id:
+                continue
+            try:
+                if msg.pinned:
+                    try:
+                        await msg.unpin()
+                    except (discord.Forbidden, discord.HTTPException):
+                        pass
+                await msg.delete()
+                deleted += 1
+            except discord.NotFound:
+                continue
+            except discord.Forbidden:
+                log.warning(
+                    f"ByteDaily Leaderboard: Cannot delete message {msg.id} — "
+                    "missing Manage Messages / history permissions."
+                )
+            except Exception as e:
+                log.warning(f"ByteDaily Leaderboard: Failed deleting message {msg.id}: {e}")
+    except discord.Forbidden:
+        log.warning(
+            "ByteDaily Leaderboard: Cannot read channel history — "
+            "bot lacks Read Message History permission."
+        )
+    except Exception as e:
+        log.warning(f"ByteDaily Leaderboard: History purge failed: {e}")
+
+    if deleted:
+        log.info(f"ByteDaily Leaderboard: Purged {deleted} prior bot message(s) from #{channel.id}.")
+    return deleted
+
+
+async def _create_and_pin(
+    channel: Union[discord.TextChannel, discord.Thread],
+    embed: discord.Embed,
+    bot_user: Optional[discord.ClientUser],
+) -> Optional[discord.Message]:
+    """Purge old bot messages, send a fresh embed, pin it, and save its ID."""
+    if bot_user:
+        await _purge_bot_messages(channel, bot_user)
+
+    msg = await channel.send(embed=embed)
+    await _save_message_id(msg.id)
+
+    try:
+        await msg.pin()
+        log.info(
+            f"ByteDaily Leaderboard: Created and pinned static message {msg.id} "
+            f"in channel {channel.id}."
+        )
+    except discord.Forbidden:
+        log.warning(
+            f"ByteDaily Leaderboard: Cannot pin message {msg.id} — "
+            "bot lacks Manage Messages permission in leaderboard channel."
+        )
+    except Exception as e:
+        log.warning(f"ByteDaily Leaderboard: Unexpected error pinning message {msg.id}: {e}")
+
+    return msg
+
+
+# -- Main refresh function -----------------------------------------------------
+
+async def refresh_leaderboard_embed(bot: discord.Client) -> None:
+    """
+    Enforce the Single Static Message architecture:
+
+      1. Resolve BD_LEADERBOARD_CHANNEL_ID.
+      2. Load leaderboard_message_id from bd_settings.
+      3. If found → fetch + edit in-place.
+      4. If missing / deleted → purge bot messages, send + pin, save new ID.
+
+    Never raises — safe for scheduler and slash commands.
+    """
+    channel = await _resolve_leaderboard_channel(bot)
+    if channel is None:
         return
 
     try:
         top_users = await user_repo.get_leaderboard(limit=10)
         embed = build_leaderboard_embed(top_users)
 
-        saved_id = _load_message_id()
+        saved_id = await _load_message_id()
         if saved_id:
             try:
                 msg = await channel.fetch_message(saved_id)
                 await msg.edit(embed=embed)
-                log.info(f"ByteDaily Leaderboard: Updated existing leaderboard message {saved_id}.")
+                log.info(
+                    f"ByteDaily Leaderboard: Edited static message {saved_id} in-place."
+                )
                 return
             except discord.NotFound:
                 log.info(
-                    "ByteDaily Leaderboard: Saved message not found "
-                    "(possibly deleted manually) — creating a new one."
+                    f"ByteDaily Leaderboard: Saved message {saved_id} not found — "
+                    "purging channel and recreating the static message."
                 )
+                await settings_repo.set_leaderboard_message_id(None)
             except Exception as e:
-                log.warning(f"ByteDaily Leaderboard: Error editing saved message: {e}")
+                log.warning(
+                    f"ByteDaily Leaderboard: Error editing message {saved_id}: {e} — "
+                    "recreating static message."
+                )
 
-        # Create a fresh leaderboard message and pin it
-        msg = await channel.send(embed=embed)
-        _save_message_id(msg.id)
-        try:
-            await msg.pin()
-            log.info(
-                f"ByteDaily Leaderboard: Created and pinned new leaderboard message {msg.id} "
-                f"in channel {BD_LEADERBOARD_CHANNEL_ID}."
-            )
-        except discord.Forbidden:
-            log.warning(
-                f"ByteDaily Leaderboard: Cannot pin message {msg.id} — "
-                "bot lacks Manage Messages permission in leaderboard channel."
-            )
-        except Exception as e:
-            log.warning(f"ByteDaily Leaderboard: Unexpected error pinning message {msg.id}: {e}")
+        await _create_and_pin(channel, embed, bot.user)
 
     except Exception as e:
         log.error(

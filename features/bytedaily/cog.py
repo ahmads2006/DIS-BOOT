@@ -57,16 +57,37 @@ class ByteDailyCog(commands.Cog, name="ByteDaily"):
 
     @app_commands.command(name="leaderboard", description="عرض قائمة المتصدرين وأعلى النقاط في ByteDaily")
     async def leaderboard(self, interaction: discord.Interaction) -> None:
-        """Slash command: Show top ByteDaily participants by points."""
-        await interaction.response.defer()
+        """
+        Public command: refresh the single static #leaderboard message in-place,
+        then show an ephemeral snapshot (never posts a duplicate in the channel).
+        """
+        await interaction.response.defer(ephemeral=True)
         try:
+            # Keep the pinned #leaderboard message as the single source of truth
+            await leaderboard_service.refresh_leaderboard_embed(self.bot)
+
             top_users = await user_repo.get_leaderboard(limit=10)
             embed = leaderboard_service.build_leaderboard_embed(top_users)
-            await interaction.followup.send(embed=embed)
+
+            lb_channel = self.bot.get_channel(BD_LEADERBOARD_CHANNEL_ID) if BD_LEADERBOARD_CHANNEL_ID else None
+            channel_hint = (
+                f"\n📌 اللوحة المباشرة: {lb_channel.mention}"
+                if lb_channel
+                else (
+                    f"\n📌 اللوحة المباشرة: <#{BD_LEADERBOARD_CHANNEL_ID}>"
+                    if BD_LEADERBOARD_CHANNEL_ID
+                    else ""
+                )
+            )
+            if channel_hint:
+                embed.description = (embed.description or "") + channel_hint
+
+            await interaction.followup.send(embed=embed, ephemeral=True)
         except Exception as e:
             log.error(f"ByteDaily: /leaderboard error: {e}", exc_info=True)
             await interaction.followup.send(
-                embed=make_error_embed("Error", f"Failed to fetch leaderboard: {e}")
+                embed=make_error_embed("Error", f"Failed to fetch leaderboard: {e}"),
+                ephemeral=True,
             )
 
     # ─────────────────────────────────────────────────────────────────────────

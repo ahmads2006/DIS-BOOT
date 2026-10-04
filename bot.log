@@ -260,3 +260,5 @@ You have two options:
 [2026-10-03 23:16:43] [INFO] [discord_bot]: ByteDaily: DB pool initialized.
 [2026-10-03 23:16:44] [INFO] [discord_bot]: ByteDaily: Picked question #10 (difficulty=2, history_excluded=3)
 [2026-10-03 23:16:45] [INFO] [discord_bot]: ByteDaily: DB pool closed.
+[2026-10-04 17:42:47] [INFO] [discord_bot]: ByteDaily: DB pool initialized.
+[2026-10-04 17:42:49] [INFO] [discord_bot]: ByteDaily: DB pool closed.
