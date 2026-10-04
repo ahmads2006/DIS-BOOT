@@ -26,7 +26,7 @@ Gemini AI generator service (single API call, Free Tier safe).
 """
 
 from datetime import datetime, time as dt_time, timedelta, timezone
-from typing import Optional, Union
+from typing import Any, Dict, Optional, Union
 import discord
 from discord.ext import tasks
 
@@ -365,3 +365,64 @@ class ByteDailyScheduler:
             f"ByteDaily: Marked poll #{poll_id} as deleted "
             "(previous_result embed retained in rolling window)."
         )
+
+    async def force_cycle(
+        self,
+        *,
+        reset_leaderboard_points: bool = False,
+        target_channel: Optional[discord.TextChannel] = None,
+    ) -> Dict[str, Any]:
+        """
+        Manually advance the full ByteDaily cycle in one shot:
+
+          1. Close the active poll (award points, rolling-window results)
+          2. Mark any closed poll as deleted (keep previous_result embed)
+          3. Optionally reset bd_users points/streaks, then refresh leaderboard
+          4. Post + pin a brand-new question (bypasses daily post-time gate)
+
+        Returns a summary dict for the slash-command confirmation.
+        """
+        summary: Dict[str, Any] = {
+            "closed_poll_id": None,
+            "new_poll_id": None,
+            "points_reset": False,
+            "users_reset": 0,
+        }
+
+        # Step 1 — close active poll if present (results + rolling window)
+        open_poll = await poll_service.get_open_poll()
+        if open_poll:
+            closed_id = open_poll["id"]
+            log.info(f"ByteDaily force-cycle: Closing active poll #{closed_id}.")
+            await self._close_poll(closed_id)
+            await self._delete_poll(closed_id)
+            summary["closed_poll_id"] = closed_id
+        else:
+            # Advance a leftover closed poll so the state machine is clean
+            closed_poll = await poll_service.get_closed_poll()
+            if closed_poll:
+                closed_id = closed_poll["id"]
+                log.info(
+                    f"ByteDaily force-cycle: No open poll — marking closed poll "
+                    f"#{closed_id} as deleted before posting next."
+                )
+                await self._delete_poll(closed_id)
+                summary["closed_poll_id"] = closed_id
+
+        # Step 3 — optional points reset, then always refresh leaderboard
+        if reset_leaderboard_points:
+            summary["users_reset"] = await poll_service.reset_leaderboard_points()
+            summary["points_reset"] = True
+
+        await leaderboard_service.refresh_leaderboard_embed(self.bot)
+
+        # Step 4 — launch new poll immediately
+        log.info("ByteDaily force-cycle: Posting new challenge.")
+        await self._post_question(target_channel=target_channel)
+
+        new_poll = await poll_service.get_open_poll()
+        if new_poll:
+            summary["new_poll_id"] = new_poll["id"]
+
+        log.info(f"ByteDaily force-cycle complete: {summary}")
+        return summary

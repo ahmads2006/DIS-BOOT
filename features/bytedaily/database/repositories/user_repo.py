@@ -88,3 +88,24 @@ async def get_total_users() -> int:
     """Return the total number of users who have participated in ByteDaily."""
     count = await bd_db.fetchval("SELECT COUNT(*) FROM bd_users")
     return int(count) if count is not None else 0
+
+
+async def reset_leaderboard_points() -> int:
+    """
+    Zero out total_points and streaks for all users (leaderboard reset).
+    Leaves correct/wrong answer counts intact.
+    Returns the number of rows updated.
+    """
+    result = await bd_db.execute(
+        """
+        UPDATE bd_users
+        SET total_points = 0,
+            current_streak = 0,
+            best_streak = 0,
+            updated_at = NOW()
+        """
+    )
+    try:
+        return int(result.split()[-1])
+    except (IndexError, ValueError):
+        return 0

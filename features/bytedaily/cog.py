@@ -197,6 +197,68 @@ class ByteDailyCog(commands.Cog, name="ByteDaily"):
             )
 
     @app_commands.command(
+        name="bytedaily-force-cycle",
+        description="[أدمن] فرض دورة كاملة: إغلاق التحدي، نشر النتائج، تحديث اللوحة، وطرح تحدٍّ جديد",
+    )
+    @app_commands.default_permissions(administrator=True)
+    @app_commands.describe(
+        reset_leaderboard_points="إن كان True يتم تصفير نقاط وstreaks جميع الأعضاء قبل تحديث اللوحة",
+    )
+    async def bytedaily_force_cycle(
+        self,
+        interaction: discord.Interaction,
+        reset_leaderboard_points: bool = False,
+    ) -> None:
+        """Admin command: Force-advance the full ByteDaily cycle in one action."""
+        await interaction.response.defer(ephemeral=True)
+
+        if not interaction.user.guild_permissions.administrator:
+            await interaction.followup.send(
+                embed=make_error_embed("Permission Denied", "Only administrators can run this command."),
+                ephemeral=True,
+            )
+            return
+
+        if not BD_CHANNEL_ID:
+            await interaction.followup.send(
+                embed=make_error_embed(
+                    "Not Configured",
+                    "BD_CHANNEL_ID is not set in `.env`. Cannot force a new cycle.",
+                ),
+                ephemeral=True,
+            )
+            return
+
+        try:
+            summary = await self.scheduler.force_cycle(
+                reset_leaderboard_points=reset_leaderboard_points,
+            )
+            detail_bits = []
+            if summary.get("closed_poll_id"):
+                detail_bits.append(f"أُغلق التحدي **#{summary['closed_poll_id']}**")
+            if summary.get("new_poll_id"):
+                detail_bits.append(f"التحدي الجديد **#{summary['new_poll_id']}**")
+            if summary.get("points_reset"):
+                detail_bits.append(f"تم تصفير نقاط {summary.get('users_reset', 0)} مشارك")
+
+            detail = (" • ".join(detail_bits) + "\n") if detail_bits else ""
+            await interaction.followup.send(
+                embed=make_success_embed(
+                    "Force Cycle Complete",
+                    "🔄 تم فرض دورة جديدة بنجاح! تم إغلاق التحدي السابق، نشر النتائج، "
+                    "تحديث لوحة الصدارة، وطرح التحدي الجديد.\n"
+                    f"{detail}",
+                ),
+                ephemeral=True,
+            )
+        except Exception as e:
+            log.error(f"ByteDaily: /bytedaily-force-cycle error: {e}", exc_info=True)
+            await interaction.followup.send(
+                embed=make_error_embed("Force Cycle Error", f"Failed to force cycle: {e}"),
+                ephemeral=True,
+            )
+
+    @app_commands.command(
         name="bytedaily-extend",
         description="[أدمن] تمديد مدة التحدي النشط حالياً",
     )

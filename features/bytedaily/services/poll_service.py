@@ -149,6 +149,16 @@ async def update_message_ids(
     await poll_repo.update_message_ids(poll_id, message_id, stats_message_id)
 
 
+async def reset_leaderboard_points() -> int:
+    """
+    Reset total_points and streaks for every row in bd_users.
+    Returns the number of users reset.
+    """
+    updated = await user_repo.reset_leaderboard_points()
+    log.warning(f"ByteDaily: Leaderboard points/streaks reset for {updated} user(s).")
+    return updated
+
+
 async def _refresh_challenge_countdown(
     bot: discord.Client,
     poll: Dict[str, Any],
