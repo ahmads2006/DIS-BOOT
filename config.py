@@ -55,7 +55,23 @@ COOLDOWN_SECONDS = 7 * 24 * 60 * 60  # أسبوع
 # إعدادات الـ API
 API_HOST = os.getenv("API_HOST", "0.0.0.0")
 API_PORT = int(os.getenv("API_PORT", "5000"))
-BOT_API_KEY = os.getenv("BOT_API_KEY", "secret123")
+_DEFAULT_BOT_API_KEY = "secret123"
+BOT_API_KEY = os.getenv("BOT_API_KEY", _DEFAULT_BOT_API_KEY)
+
+
+def _validate_production_secrets() -> None:
+    """Refuse weak/missing API keys on Render (public HTTP surface)."""
+    if "RENDER" not in os.environ:
+        return
+    key = (BOT_API_KEY or "").strip()
+    if not key or key == _DEFAULT_BOT_API_KEY:
+        raise RuntimeError(
+            "Production (Render): set a strong BOT_API_KEY in environment variables. "
+            "The default 'secret123' and empty values are not allowed."
+        )
+
+
+_validate_production_secrets()
 
 # إعدادات قاعدة البيانات (PostgreSQL / Supabase)
 DATABASE_URL = os.getenv("DATABASE_URL", "")

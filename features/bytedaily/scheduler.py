@@ -25,7 +25,7 @@ from __future__ import annotations
 
 import asyncio
 from datetime import datetime, time as dt_time, timedelta, timezone
-from typing import Any, Dict, Optional, Union
+from typing import Any, Dict, List, Optional, Union
 
 import discord
 from discord.ext import tasks
@@ -57,6 +57,7 @@ from .views import (
 # after unexpected exceptions instead of dying silently on Render.
 _CHECK_INTERVAL_SECONDS = 15
 _EMPTY_RETRY_SECONDS = 60.0
+_DM_CONCURRENCY = 5
 
 
 class ByteDailyScheduler:
@@ -64,7 +65,8 @@ class ByteDailyScheduler:
 
     def __init__(self, bot: discord.Client) -> None:
         self.bot = bot
-        self._is_processing: bool = False
+        self._cycle_lock: asyncio.Lock = asyncio.Lock()
+        self._dm_semaphore: asyncio.Semaphore = asyncio.Semaphore(_DM_CONCURRENCY)
         self._dynamic_items_registered: bool = False
         self._wake_event: asyncio.Event = asyncio.Event()
 
@@ -140,18 +142,14 @@ class ByteDailyScheduler:
             log.warning("[Scheduler] BD_CHANNEL_ID not configured — skipping tick.")
             return
 
-        if self._is_processing:
-            log.info("[Scheduler] Previous tick still running — skipping overlapping tick.")
-            return
-
-        self._is_processing = True
-        try:
-            await self._cycle_step()
-        except Exception:
-            # logger.exception so Render always shows a full traceback
-            log.exception("[Scheduler] Unhandled error during cycle tick — will retry next interval.")
-        finally:
-            self._is_processing = False
+        async with self._cycle_lock:
+            try:
+                await self._cycle_step()
+            except Exception:
+                # logger.exception so Render always shows a full traceback
+                log.exception(
+                    "[Scheduler] Unhandled error during cycle tick — will retry next interval."
+                )
 
     @_check_loop.before_loop
     async def _before_check_loop(self) -> None:
@@ -337,12 +335,16 @@ class ByteDailyScheduler:
 
         now = datetime.now(timezone.utc)
         closes_at = now + timedelta(seconds=ANSWER_WINDOW_SECONDS)
-        poll_id = await poll_service.create_poll(
-            question_id=question["id"],
-            channel_id=channel.id,
-            message_id=None,
-            ends_at=closes_at,
-        )
+        try:
+            poll_id = await poll_service.create_poll(
+                question_id=question["id"],
+                channel_id=channel.id,
+                message_id=None,
+                ends_at=closes_at,
+            )
+        except poll_repo.PollAlreadyOpenError as e:
+            log.warning(f"ByteDaily: Skipping post — {e}")
+            return
 
         footer_icon = self.bot.user.display_avatar.url if self.bot.user else None
         embed = build_challenge_embed(
@@ -383,7 +385,7 @@ class ByteDailyScheduler:
           1) Delete oldest previous_result_message_id
           2) Delete current question → post Results embed as previous_result
           3) Clear current_question_message_id
-          4) DM each participant a personal score report (graceful if DMs closed)
+          4) Queue personal result DMs in the background (does not block rollover)
         """
         poll = await poll_repo.get_by_id(poll_id)
         if not poll:
@@ -421,21 +423,14 @@ class ByteDailyScheduler:
         else:
             log.warning(
                 f"ByteDaily: Channel missing for poll #{poll_id} — "
-                "skipping public results message; still sending personal DMs."
+                "skipping public results message; still queueing personal DMs."
             )
 
-        # Personal DM reports — never abort the public close / rollover chain
-        try:
-            await self._dm_personal_results(
-                poll_id=poll_id,
-                question=question,
-                footer_icon_url=footer_icon,
-            )
-        except Exception:
-            log.exception(
-                f"[Scheduler] Personal result DMs failed for poll #{poll_id} — "
-                "continuing rollover."
-            )
+        self._spawn_dm_personal_results(
+            poll_id=poll_id,
+            question=question,
+            footer_icon_url=footer_icon,
+        )
 
         try:
             await leaderboard_service.refresh_leaderboard_embed(self.bot)
@@ -443,6 +438,33 @@ class ByteDailyScheduler:
             log.exception(
                 f"[Scheduler] Leaderboard refresh failed after closing poll #{poll_id}."
             )
+
+    def _spawn_dm_personal_results(
+        self,
+        *,
+        poll_id: int,
+        question: Dict[str, Any],
+        footer_icon_url: Optional[str] = None,
+    ) -> None:
+        """Fire-and-forget personal DMs so rollover can post the next challenge immediately."""
+        task = asyncio.create_task(
+            self._dm_personal_results(
+                poll_id=poll_id,
+                question=question,
+                footer_icon_url=footer_icon_url,
+            ),
+            name=f"bytedaily-dm-poll-{poll_id}",
+        )
+        task.add_done_callback(self._log_dm_task_outcome)
+
+    @staticmethod
+    def _log_dm_task_outcome(task: asyncio.Task) -> None:
+        try:
+            task.result()
+        except asyncio.CancelledError:
+            log.info("ByteDaily: Personal result DM task cancelled.")
+        except Exception:
+            log.exception("ByteDaily: Personal result DM background task failed.")
 
     async def _dm_personal_results(
         self,
@@ -453,59 +475,62 @@ class ByteDailyScheduler:
     ) -> None:
         """
         After poll close: DM every participant a structured personal result embed.
-        Groups answers by user_id; skips users with closed DMs (Forbidden).
+        Runs in a background task with semaphore-limited concurrency.
         """
         answers = await answer_repo.get_all_for_poll(poll_id)
         if not answers:
             log.info(f"ByteDaily: Poll #{poll_id} has no answers — skipping result DMs.")
             return
 
-        # Group by Discord user_id (one answer per user per poll today)
         by_user: Dict[int, List[Dict[str, Any]]] = {}
         for row in answers:
             uid = int(row["user_id"])
             by_user.setdefault(uid, []).append(row)
 
-        sent = 0
-        skipped_forbidden = 0
-        failed = 0
+        async def _send_one(user_id: int, user_answers: List[Dict[str, Any]]) -> str:
+            async with self._dm_semaphore:
+                try:
+                    user = self.bot.get_user(user_id) or await self.bot.fetch_user(user_id)
+                except Exception as e:
+                    log.warning(
+                        f"ByteDaily: Could not fetch user {user_id} for result DM: {e}"
+                    )
+                    return "failed"
 
-        for user_id, user_answers in by_user.items():
-            try:
-                user = self.bot.get_user(user_id) or await self.bot.fetch_user(user_id)
-            except Exception as e:
-                failed += 1
-                log.warning(f"ByteDaily: Could not fetch user {user_id} for result DM: {e}")
-                continue
-
-            correct_count = sum(1 for a in user_answers if a.get("is_correct"))
-            total_questions = len(user_answers)
-            # Primary answer for the (single) question in this poll
-            primary = user_answers[0]
-            embed = build_personal_result_dm_embed(
-                poll_id=poll_id,
-                question=question,
-                chosen_answer=str(primary.get("chosen_answer") or "?"),
-                is_correct=bool(primary.get("is_correct")),
-                correct_count=correct_count,
-                total_questions=total_questions,
-                footer_icon_url=footer_icon_url,
-            )
-
-            try:
-                await user.send(embed=embed)
-                sent += 1
-            except discord.Forbidden:
-                skipped_forbidden += 1
-                log.info(
-                    f"ByteDaily: Cannot DM result to user {user_id} — DMs closed/blocked."
+                correct_count = sum(1 for a in user_answers if a.get("is_correct"))
+                total_questions = len(user_answers)
+                primary = user_answers[0]
+                embed = build_personal_result_dm_embed(
+                    poll_id=poll_id,
+                    question=question,
+                    chosen_answer=str(primary.get("chosen_answer") or "?"),
+                    is_correct=bool(primary.get("is_correct")),
+                    correct_count=correct_count,
+                    total_questions=total_questions,
+                    footer_icon_url=footer_icon_url,
                 )
-            except Exception as e:
-                failed += 1
-                log.warning(f"ByteDaily: Failed sending result DM to user {user_id}: {e}")
 
-            # Light pacing to avoid Discord rate limits on large participant sets
-            await asyncio.sleep(0.35)
+                try:
+                    await user.send(embed=embed)
+                    return "sent"
+                except discord.Forbidden:
+                    log.info(
+                        f"ByteDaily: Cannot DM result to user {user_id} — DMs closed/blocked."
+                    )
+                    return "forbidden"
+                except Exception as e:
+                    log.warning(
+                        f"ByteDaily: Failed sending result DM to user {user_id}: {e}"
+                    )
+                    return "failed"
+
+        outcomes = await asyncio.gather(
+            *(_send_one(uid, rows) for uid, rows in by_user.items()),
+            return_exceptions=True,
+        )
+        sent = sum(1 for o in outcomes if o == "sent")
+        skipped_forbidden = sum(1 for o in outcomes if o == "forbidden")
+        failed = sum(1 for o in outcomes if o == "failed" or isinstance(o, BaseException))
 
         log.info(
             f"ByteDaily: Poll #{poll_id} personal result DMs — "
@@ -554,36 +579,37 @@ class ByteDailyScheduler:
             "users_reset": 0,
         }
 
-        open_poll = await poll_service.get_open_poll()
-        if open_poll:
-            closed_id = open_poll["id"]
-            log.info(f"ByteDaily force-cycle: Closing active poll #{closed_id}.")
-            await self._close_poll(closed_id)
-            await self._delete_poll(closed_id)
-            summary["closed_poll_id"] = closed_id
-        else:
-            closed_poll = await poll_service.get_closed_poll()
-            if closed_poll:
-                closed_id = closed_poll["id"]
-                log.info(
-                    f"ByteDaily force-cycle: No open poll — marking closed poll "
-                    f"#{closed_id} as deleted before posting next."
-                )
+        async with self._cycle_lock:
+            open_poll = await poll_service.get_open_poll()
+            if open_poll:
+                closed_id = open_poll["id"]
+                log.info(f"ByteDaily force-cycle: Closing active poll #{closed_id}.")
+                await self._close_poll(closed_id)
                 await self._delete_poll(closed_id)
                 summary["closed_poll_id"] = closed_id
+            else:
+                closed_poll = await poll_service.get_closed_poll()
+                if closed_poll:
+                    closed_id = closed_poll["id"]
+                    log.info(
+                        f"ByteDaily force-cycle: No open poll — marking closed poll "
+                        f"#{closed_id} as deleted before posting next."
+                    )
+                    await self._delete_poll(closed_id)
+                    summary["closed_poll_id"] = closed_id
 
-        if reset_leaderboard_points:
-            summary["users_reset"] = await poll_service.reset_leaderboard_points()
-            summary["points_reset"] = True
+            if reset_leaderboard_points:
+                summary["users_reset"] = await poll_service.reset_leaderboard_points()
+                summary["points_reset"] = True
 
-        await leaderboard_service.refresh_leaderboard_embed(self.bot)
+            await leaderboard_service.refresh_leaderboard_embed(self.bot)
 
-        log.info("ByteDaily force-cycle: Posting new challenge.")
-        await self._post_question(target_channel=target_channel)
+            log.info("ByteDaily force-cycle: Posting new challenge.")
+            await self._post_question(target_channel=target_channel)
 
-        new_poll = await poll_service.get_open_poll()
-        if new_poll:
-            summary["new_poll_id"] = new_poll["id"]
+            new_poll = await poll_service.get_open_poll()
+            if new_poll:
+                summary["new_poll_id"] = new_poll["id"]
 
         self.nudge()
         log.info(f"ByteDaily force-cycle complete: {summary}")

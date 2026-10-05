@@ -1,35 +1,23 @@
 """
-ByteDaily Database Client — Independent asyncpg connection pool.
+ByteDaily Database Client — uses the shared asyncpg pool (see db_pool.py).
 
-Creates and manages its OWN asyncpg pool, completely separate from the
-legacy pool in legacy/core/database.py. Both pools connect to the same
-DATABASE_URL (Supabase PostgreSQL) but do NOT share pool objects.
-
-Design:
-  - Mirror the pattern of legacy DatabaseLayer but scoped to ByteDaily tables.
-  - All repository modules access the DB through this client's singleton `bd_db`.
-  - No in-memory fallback (unlike legacy) — ByteDaily requires the DB to function.
+All repository modules access the DB through the singleton `bd_db`.
+No in-memory fallback — ByteDaily requires the DB to function.
 
 Lifecycle (managed by ByteDailyCog):
-  - bd_db.initialize()  →  called in cog_load()
-  - bd_db.close()       →  called in cog_unload()
+  - bd_db.initialize()  →  called in cog_load (refs shared pool)
+  - bd_db.close()       →  called in cog_unload (releases shared pool ref)
 """
 
 from typing import Any, Dict, List, Optional
 
-try:
-    import asyncpg
-except ImportError:
-    asyncpg = None
-
-from config import DATABASE_URL
+import db_pool
 from bridge.legacy_adapter import log
 
 
 class ByteDailyDB:
     """
-    Manages an independent asyncpg connection pool for ByteDaily features.
-    Provides convenience query wrappers converting record rows into standard dicts.
+    ByteDaily query wrappers over the shared asyncpg pool.
     """
 
     def __init__(self) -> None:
@@ -37,38 +25,24 @@ class ByteDailyDB:
         self.is_connected: bool = False
 
     async def initialize(self) -> None:
-        if not DATABASE_URL:
-            log.error("ByteDaily: DATABASE_URL not set — cannot initialize BD pool.")
-            return
-
-        if not asyncpg:
-            log.error("ByteDaily: asyncpg is not installed — cannot initialize BD pool.")
-            return
-
         try:
-            self.pool = await asyncpg.create_pool(
-                DATABASE_URL,
-                min_size=1,
-                max_size=3,
-                timeout=10,
-                command_timeout=10,
-                statement_cache_size=0,
-            )
-            async with self.pool.acquire() as conn:
-                await conn.fetchval("SELECT 1")
-
-            self.is_connected = True
-            log.info("ByteDaily: DB pool initialized.")
+            self.pool = await db_pool.initialize()
+            self.is_connected = self.pool is not None
+            if self.is_connected:
+                log.info("ByteDaily: Attached to shared DB pool.")
+            else:
+                log.error("ByteDaily: Shared DB pool unavailable — ByteDaily requires DATABASE_URL.")
         except Exception as e:
             self.is_connected = False
-            log.error(f"ByteDaily: Failed to initialize DB pool: {e}")
+            self.pool = None
+            log.error(f"ByteDaily: Failed to attach to shared DB pool: {e}")
 
     async def close(self) -> None:
-        if self.pool:
-            await self.pool.close()
+        if self.pool is not None:
+            await db_pool.release()
             self.pool = None
             self.is_connected = False
-            log.info("ByteDaily: DB pool closed.")
+            log.info("ByteDaily: Released shared DB pool reference.")
 
     def acquire(self):
         """Context manager: async with bd_db.acquire() as conn: ..."""

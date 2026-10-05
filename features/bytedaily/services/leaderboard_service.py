@@ -6,7 +6,7 @@ The message ID is persisted in Supabase (`bd_settings.leaderboard_message_id`)
 so every bot host edits the same message instead of posting duplicates.
 
 Public API:
-  - refresh_leaderboard_embed(bot)  ->  edit-in-place, or purge + create
+  - refresh_leaderboard_embed(bot)  ->  edit-in-place, or send + pin (no history scan)
   - build_leaderboard_embed(top_users)  ->  returns a discord.Embed
 """
 
@@ -27,7 +27,6 @@ _LEGACY_STATE_FILE = Path(__file__).parent.parent / "leaderboard_state.json"
 
 _PODIUM_EMOJIS: Dict[int, str] = {1: "🥇", 2: "🥈", 3: "🥉"}
 _SEPARATOR = "═══════════════════════════════"
-_HISTORY_PURGE_LIMIT = 100
 
 
 # -- Message ID persistence (Supabase bd_settings) -----------------------------
@@ -174,58 +173,11 @@ async def _resolve_leaderboard_channel(
     return channel
 
 
-async def _purge_bot_messages(
-    channel: Union[discord.TextChannel, discord.Thread],
-    bot_user: discord.ClientUser,
-) -> int:
-    """
-    Delete previous bot messages in the leaderboard channel so only the
-    new static message remains. Returns the number of deleted messages.
-    """
-    deleted = 0
-    try:
-        async for msg in channel.history(limit=_HISTORY_PURGE_LIMIT):
-            if msg.author.id != bot_user.id:
-                continue
-            try:
-                if msg.pinned:
-                    try:
-                        await msg.unpin()
-                    except (discord.Forbidden, discord.HTTPException):
-                        pass
-                await msg.delete()
-                deleted += 1
-            except discord.NotFound:
-                continue
-            except discord.Forbidden:
-                log.warning(
-                    f"ByteDaily Leaderboard: Cannot delete message {msg.id} — "
-                    "missing Manage Messages / history permissions."
-                )
-            except Exception as e:
-                log.warning(f"ByteDaily Leaderboard: Failed deleting message {msg.id}: {e}")
-    except discord.Forbidden:
-        log.warning(
-            "ByteDaily Leaderboard: Cannot read channel history — "
-            "bot lacks Read Message History permission."
-        )
-    except Exception as e:
-        log.warning(f"ByteDaily Leaderboard: History purge failed: {e}")
-
-    if deleted:
-        log.info(f"ByteDaily Leaderboard: Purged {deleted} prior bot message(s) from #{channel.id}.")
-    return deleted
-
-
 async def _create_and_pin(
     channel: Union[discord.TextChannel, discord.Thread],
     embed: discord.Embed,
-    bot_user: Optional[discord.ClientUser],
 ) -> Optional[discord.Message]:
-    """Purge old bot messages, send a fresh embed, pin it, and save its ID."""
-    if bot_user:
-        await _purge_bot_messages(channel, bot_user)
-
+    """Send a fresh embed, pin it, and save its ID (no channel history scan)."""
     msg = await channel.send(embed=embed)
     await _save_message_id(msg.id)
 
@@ -255,7 +207,7 @@ async def refresh_leaderboard_embed(bot: discord.Client) -> None:
       1. Resolve BD_LEADERBOARD_CHANNEL_ID.
       2. Load leaderboard_message_id from bd_settings.
       3. If found → fetch + edit in-place.
-      4. If missing / deleted → purge bot messages, send + pin, save new ID.
+      4. If missing / deleted → send + pin a new static message, save new ID.
 
     Never raises — safe for scheduler and slash commands.
     """
@@ -279,7 +231,7 @@ async def refresh_leaderboard_embed(bot: discord.Client) -> None:
             except discord.NotFound:
                 log.info(
                     f"ByteDaily Leaderboard: Saved message {saved_id} not found — "
-                    "purging channel and recreating the static message."
+                    "creating a new static message."
                 )
                 await settings_repo.set_leaderboard_message_id(None)
             except Exception as e:
@@ -288,7 +240,7 @@ async def refresh_leaderboard_embed(bot: discord.Client) -> None:
                     "recreating static message."
                 )
 
-        await _create_and_pin(channel, embed, bot.user)
+        await _create_and_pin(channel, embed)
 
     except Exception as e:
         log.error(

@@ -10,6 +10,10 @@ from typing import Any, Dict, List, Optional
 from ..client import bd_db
 
 
+class PollAlreadyOpenError(RuntimeError):
+    """Raised when a new poll cannot be created because another poll is still open."""
+
+
 async def create(
     question_id: int,
     channel_id: int,
@@ -17,6 +21,12 @@ async def create(
     ends_at: Optional[datetime] = None,
 ) -> int:
     """Insert a new poll with status='open'. Returns new poll_id."""
+    existing = await get_open_poll()
+    if existing is not None:
+        raise PollAlreadyOpenError(
+            f"Cannot create poll: poll #{existing['id']} is still open."
+        )
+
     if ends_at is not None:
         return await bd_db.fetchval(
             """

@@ -34,6 +34,21 @@ _GENERIC_ANSWER_ERROR = "⚠️ حدث خطأ في معالجة الإجابة،
 _GENERIC_RESULT_ERROR = "⚠️ حدث خطأ في جلب النتيجة، يرجى المحاولة مرة أخرى."
 
 
+async def _defer_ephemeral(interaction: discord.Interaction) -> bool:
+    """
+    Acknowledge the interaction immediately. Returns False if the token expired
+    or Discord rejected the defer (caller should return without DB/network work).
+    """
+    try:
+        if interaction.response.is_done():
+            return True
+        await interaction.response.defer(ephemeral=True)
+        return True
+    except (discord.NotFound, discord.HTTPException) as e:
+        log.warning(f"ByteDaily: Could not defer interaction: {e}")
+        return False
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Dynamic Buttons (Registered ONCE globally on bot startup)
 # ─────────────────────────────────────────────────────────────────────────────
@@ -69,7 +84,8 @@ class DynamicAnswerButton(
         return cls(poll_id=int(match.group("poll_id")), choice=match.group("choice"))
 
     async def callback(self, interaction: discord.Interaction) -> None:
-        await interaction.response.defer(ephemeral=True)
+        if not await _defer_ephemeral(interaction):
+            return
 
         # Process answer + respond via followup (never response.send_message)
         try:
@@ -184,7 +200,8 @@ class DynamicResultButton(
         return cls(poll_id=int(match.group("poll_id")))
 
     async def callback(self, interaction: discord.Interaction) -> None:
-        await interaction.response.defer(ephemeral=True)
+        if not await _defer_ephemeral(interaction):
+            return
 
         # Build personal result via followup (never response.send_message)
         try:

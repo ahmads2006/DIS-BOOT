@@ -2,4 +2,6 @@
 *.env
 .venv/
 __pycache__/
+bot.log
+*.log
 features/bytedaily/leaderboard_state.json

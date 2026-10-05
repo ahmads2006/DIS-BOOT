@@ -7,7 +7,10 @@ from legacy.core.logger import log
 from legacy.core.database import db
 from legacy.api.server import AsyncAPIServer
 
-intents = discord.Intents.all()
+intents = discord.Intents.none()
+intents.guilds = True
+intents.members = True
+intents.messages = True
 
 class DeveloperBot(commands.Bot):
     def __init__(self):
@@ -126,6 +129,12 @@ class DeveloperBot(commands.Bot):
             self._keepalive_task.cancel()
         if self.api_server:
             await self.api_server.stop()
+        try:
+            from features.bytedaily.database.client import bd_db
+            await bd_db.close()
+        except Exception:
+            pass
+        await db.close()
         await super().close()
 
 

@@ -1,12 +1,7 @@
 import time
 from typing import Dict, List, Optional, Any
 from legacy.core.logger import log
-from config import DATABASE_URL
-
-try:
-    import asyncpg
-except ImportError:
-    asyncpg = None
+import db_pool
 
 class DatabaseLayer:
     """
@@ -14,7 +9,6 @@ class DatabaseLayer:
     تتضمن نظام Fallback تلقائي للذاكرة في حال انقطاع الاتصال.
     """
     def __init__(self):
-        self.database_url = DATABASE_URL
         self.pool: Optional[Any] = None
         self.is_connected = False
 
@@ -23,32 +17,24 @@ class DatabaseLayer:
         self._local_exam_history: List[Dict[str, Any]] = []
 
     async def initialize(self):
-        if not self.database_url or not asyncpg:
-            log.info("ℹ️ DATABASE_URL not provided or asyncpg missing. Running in In-Memory mode.")
-            return
-
         try:
-            self.pool = await asyncpg.create_pool(
-                self.database_url,
-                min_size=1,
-                max_size=5,
-                timeout=10,
-                command_timeout=10,
-                statement_cache_size=0
-            )
-            async with self.pool.acquire() as conn:
-                await conn.fetchval("SELECT 1")
-
-            self.is_connected = True
-            log.info("✅ Connected to Supabase PostgreSQL database successfully!")
+            self.pool = await db_pool.initialize()
+            self.is_connected = self.pool is not None
+            if self.is_connected:
+                log.info("✅ Connected to Supabase PostgreSQL database successfully!")
+            else:
+                log.info("ℹ️ DATABASE_URL not provided or pool unavailable. Running in In-Memory mode.")
         except Exception as e:
             self.is_connected = False
+            self.pool = None
             log.warning(f"⚠️ Could not connect to Supabase PostgreSQL: {e}. Running in In-Memory mode.")
 
     async def close(self):
-        if self.pool:
-            await self.pool.close()
-            log.info("Database connection pool closed.")
+        if self.pool is not None:
+            await db_pool.release()
+            self.pool = None
+            self.is_connected = False
+            log.info("Legacy database released shared connection pool.")
 
     # ==========================
     # إدارة فترات الانتظار (Cooldowns)
