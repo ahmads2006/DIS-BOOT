@@ -371,9 +371,6 @@ class ByteDailyScheduler:
         await rolling_window.save_current_question(msg.id)
         await question_service.record_asked(question_id=question["id"], poll_id=poll_id)
 
-        if self.bot.user:
-            await rolling_window.enforce_two_message_window(channel, self.bot.user)
-
         log.info(
             f"ByteDaily: Posted poll #{poll_id} for question #{question['id']} "
             f"in message {msg.id} (ends_at={closes_at.isoformat()})."
@@ -416,9 +413,6 @@ class ByteDailyScheduler:
 
             await poll_service.update_message_ids(poll_id, stats_message_id=stats_msg.id)
             await rolling_window.save_previous_result(stats_msg.id)
-
-            if self.bot.user:
-                await rolling_window.enforce_two_message_window(channel, self.bot.user)
 
             log.info(
                 f"ByteDaily: Closed poll #{poll_id} — results message {stats_msg.id} "
