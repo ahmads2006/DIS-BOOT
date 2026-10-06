@@ -258,8 +258,8 @@ async def modify_poll_duration(
 
     if new_ends <= now:
         raise PollDurationError(
-            "لا يمكن ضبط وقت الانتهاء في الماضي. "
-            "استخدم `/bytedaily-close` لإغلاق التحدي فوراً بدلاً من تقليص الوقت أكثر من اللازم."
+            "لا يمكن ضبط وقت الانتهاء في الماضي. استخدم `/bytedaily-close` لإغلاق التحدي فوراً بدلاً من تقليص الوقت أكثر من اللازم.\n"
+            "Cannot set closing time in the past. Use `/bytedaily-close` to close the challenge immediately."
         )
 
     updated = await poll_repo.update_ends_at(poll_id, new_ends)

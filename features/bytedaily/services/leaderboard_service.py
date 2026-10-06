@@ -1,4 +1,4 @@
-﻿"""
+"""
 ByteDaily Leaderboard Service — Single Static Message architecture.
 
 Maintains exactly ONE pinned leaderboard message in BD_LEADERBOARD_CHANNEL_ID.
@@ -90,10 +90,12 @@ def build_leaderboard_embed(top_users: List[Dict[str, Any]]) -> discord.Embed:
     if not top_users:
         embed.description = (
             "لا يوجد مشاركون بعد!\n"
-            "كن أول من يحل التحدي اليومي وافتح القمة. 🚀"
+            "No participants yet!\n\n"
+            "كن أول من يحل التحدي اليومي وافتح القمة. 🚀\n"
+            "Be the first to solve today's challenge and climb the leaderboard. 🚀"
         )
         embed.set_footer(
-            text="🔄 التحديث تلقائي فور إغلاق كل تحدي يومي | اكتب /bytedaily-rank لمعرفة ترتيبك الشخصي"
+            text="🔄 التحديث تلقائي فور إغلاق التحدي • Auto-updates after challenge close | /bytedaily-rank"
         )
         return embed
 
@@ -129,7 +131,7 @@ def build_leaderboard_embed(top_users: List[Dict[str, Any]]) -> discord.Embed:
 
     embed.description = "\n".join(parts)
     embed.set_footer(
-        text="🔄 التحديث تلقائي فور إغلاق كل تحدي يومي | اكتب /bytedaily-rank لمعرفة ترتيبك الشخصي"
+        text="🔄 التحديث تلقائي فور إغلاق التحدي • Auto-updates after challenge close | /bytedaily-rank"
     )
     return embed
 

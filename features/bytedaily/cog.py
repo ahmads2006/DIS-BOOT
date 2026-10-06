@@ -78,7 +78,10 @@ class ByteDailyCog(commands.Cog, name="ByteDaily"):
     # Public Slash Commands
     # ─────────────────────────────────────────────────────────────────────────
 
-    @app_commands.command(name="leaderboard", description="عرض قائمة المتصدرين وأعلى النقاط في ByteDaily")
+    @app_commands.command(
+        name="leaderboard",
+        description="عرض قائمة المتصدرين وأعلى النقاط / View ByteDaily Leaderboard",
+    )
     async def leaderboard(self, interaction: discord.Interaction) -> None:
         """
         Public command: refresh the single static #leaderboard message in-place,
@@ -94,10 +97,10 @@ class ByteDailyCog(commands.Cog, name="ByteDaily"):
 
             lb_channel = self.bot.get_channel(BD_LEADERBOARD_CHANNEL_ID) if BD_LEADERBOARD_CHANNEL_ID else None
             channel_hint = (
-                f"\n📌 اللوحة المباشرة: {lb_channel.mention}"
+                f"\n📌 اللوحة المباشرة • Live Board: {lb_channel.mention}"
                 if lb_channel
                 else (
-                    f"\n📌 اللوحة المباشرة: <#{BD_LEADERBOARD_CHANNEL_ID}>"
+                    f"\n📌 اللوحة المباشرة • Live Board: <#{BD_LEADERBOARD_CHANNEL_ID}>"
                     if BD_LEADERBOARD_CHANNEL_ID
                     else ""
                 )
@@ -109,7 +112,45 @@ class ByteDailyCog(commands.Cog, name="ByteDaily"):
         except Exception as e:
             log.error(f"ByteDaily: /leaderboard error: {e}", exc_info=True)
             await interaction.followup.send(
-                embed=make_error_embed("Error", f"Failed to fetch leaderboard: {e}"),
+                embed=make_error_embed("خطأ / Error", f"فشل جلب لوحة المتصدرين / Failed to fetch leaderboard: {e}"),
+                ephemeral=True,
+            )
+
+    @app_commands.command(
+        name="bytedaily-language",
+        description="تغيير لغة التحديات والشروحات المفضلة / Set preferred ByteDaily language",
+    )
+    @app_commands.choices(
+        language=[
+            app_commands.Choice(name="العربية (Arabic)", value="ar"),
+            app_commands.Choice(name="English (الإنجليزية)", value="en"),
+            app_commands.Choice(name="تلقائي حسب الرتبة (Auto / Detect from Role)", value="auto"),
+        ]
+    )
+    async def bytedaily_language(
+        self,
+        interaction: discord.Interaction,
+        language: app_commands.Choice[str],
+    ) -> None:
+        """Public command: Set user preferred language for ByteDaily."""
+        await interaction.response.defer(ephemeral=True)
+        try:
+            val = None if language.value == "auto" else language.value
+            await user_repo.set_preferred_language(interaction.user.id, val)
+            if language.value == "en":
+                msg = "🌐 Preferred language set to **English**! Challenge responses and explanations will now appear in English."
+            elif language.value == "ar":
+                msg = "🌐 تم ضبط لغتك المفضلة إلى **العربية**! ستظهر إشعارات التحديات والشروحات باللغة العربية."
+            else:
+                msg = "🌐 تم ضبط اللغة إلى **تلقائي (حسب رتبتك في السيرفر)**! Language will be auto-detected from your server role (English / Arabic)."
+            await interaction.followup.send(
+                embed=make_success_embed("Language Updated / تم تغيير اللغة", msg),
+                ephemeral=True,
+            )
+        except Exception as e:
+            log.error(f"ByteDaily: /bytedaily-language error: {e}", exc_info=True)
+            await interaction.followup.send(
+                embed=make_error_embed("Error", f"Failed to set language: {e}"),
                 ephemeral=True,
             )
 
@@ -119,7 +160,7 @@ class ByteDailyCog(commands.Cog, name="ByteDaily"):
 
     @app_commands.command(
         name="bytedaily-post",
-        description="[أدمن] نشر تحدي ByteDaily جديد في القناة فوراً",
+        description="[أدمن] نشر تحدي ByteDaily جديد في القناة فوراً / [Admin] Post new challenge immediately",
     )
     @app_commands.default_permissions(administrator=True)
     async def bytedaily_post(
@@ -132,7 +173,10 @@ class ByteDailyCog(commands.Cog, name="ByteDaily"):
 
         if not interaction.user.guild_permissions.administrator:
             await interaction.followup.send(
-                embed=make_error_embed("Permission Denied", "Only administrators can run this command."),
+                embed=make_error_embed(
+                    "غير مصرح • Permission Denied",
+                    "هذا الأمر مخصص للمسؤولين فقط. / Only administrators can run this command.",
+                ),
                 ephemeral=True,
             )
             return
@@ -141,7 +185,8 @@ class ByteDailyCog(commands.Cog, name="ByteDaily"):
         if open_poll:
             await interaction.followup.send(
                 embed=make_error_embed(
-                    "Poll Already Open",
+                    "تحدٍّ نشط بالفعل • Poll Already Open",
+                    f"يوجد تحدي نشط بالفعل (**#{open_poll['id']}**). يرجى إغلاقه أولاً قبل طرح تحدٍّ جديد.\n"
                     f"There is already an active poll (**#{open_poll['id']}**). Close it first before posting a new one.",
                 ),
                 ephemeral=True,
@@ -153,7 +198,8 @@ class ByteDailyCog(commands.Cog, name="ByteDaily"):
         if not target_channel:
             await interaction.followup.send(
                 embed=make_error_embed(
-                    "Target Channel Not Found",
+                    "لم يتم العثور على القناة • Target Channel Not Found",
+                    "تعذر العثور على القناة المحددة. يرجى ضبط BD_CHANNEL_ID أو تحديد قناة صالحة.\n"
                     "Target channel not found. Please set BD_CHANNEL_ID or specify a channel parameter.",
                 ),
                 ephemeral=True,
@@ -166,7 +212,8 @@ class ByteDailyCog(commands.Cog, name="ByteDaily"):
             poll_id_str = f"#{open_poll['id']}" if open_poll else "new"
             await interaction.followup.send(
                 embed=make_success_embed(
-                    "Challenge Posted",
+                    "تم نشر التحدي • Challenge Posted",
+                    f"تم نشر تحدي ByteDaily بنجاح ({poll_id_str}) في {target_channel.mention}!\n"
                     f"Successfully posted a new ByteDaily challenge ({poll_id_str}) to {target_channel.mention}!",
                 ),
                 ephemeral=True,
@@ -174,13 +221,13 @@ class ByteDailyCog(commands.Cog, name="ByteDaily"):
         except Exception as e:
             log.error(f"ByteDaily: Error posting challenge manually: {e}", exc_info=True)
             await interaction.followup.send(
-                embed=make_error_embed("Posting Error", f"Failed to post challenge: {e}"),
+                embed=make_error_embed("خطأ في النشر • Posting Error", f"فشل نشر التحدي / Failed to post challenge: {e}"),
                 ephemeral=True,
             )
 
     @app_commands.command(
         name="bytedaily-close",
-        description="[أدمن] إغلاق التحدي النشط حالياً وحساب النتائج والـ Streaks",
+        description="[أدمن] إغلاق التحدي النشط وحساب النتائج / [Admin] Close active challenge and compute results",
     )
     @app_commands.default_permissions(administrator=True)
     async def bytedaily_close(self, interaction: discord.Interaction) -> None:
@@ -189,7 +236,10 @@ class ByteDailyCog(commands.Cog, name="ByteDaily"):
 
         if not interaction.user.guild_permissions.administrator:
             await interaction.followup.send(
-                embed=make_error_embed("Permission Denied", "Only administrators can run this command."),
+                embed=make_error_embed(
+                    "غير مصرح • Permission Denied",
+                    "هذا الأمر مخصص للمسؤولين فقط. / Only administrators can run this command.",
+                ),
                 ephemeral=True,
             )
             return
@@ -197,7 +247,10 @@ class ByteDailyCog(commands.Cog, name="ByteDaily"):
         open_poll = await poll_service.get_open_poll()
         if not open_poll:
             await interaction.followup.send(
-                embed=make_error_embed("No Open Poll", "There is no currently active ByteDaily poll to close."),
+                embed=make_error_embed(
+                    "لا يوجد تحدٍّ نشط • No Open Poll",
+                    "لا يوجد استبيان نشط حالياً لإغلاقه. / There is no currently active ByteDaily poll to close.",
+                ),
                 ephemeral=True,
             )
             return
@@ -207,7 +260,8 @@ class ByteDailyCog(commands.Cog, name="ByteDaily"):
             await self.scheduler._close_poll(poll_id)
             await interaction.followup.send(
                 embed=make_success_embed(
-                    "Poll Closed",
+                    "تم إغلاق التحدي • Poll Closed",
+                    f"تم إغلاق التحدي **#{poll_id}** واحتساب النتائج والسلاسل بنجاح!\n"
                     f"Successfully closed ByteDaily poll **#{poll_id}** and calculated results!",
                 ),
                 ephemeral=True,
@@ -215,17 +269,17 @@ class ByteDailyCog(commands.Cog, name="ByteDaily"):
         except Exception as e:
             log.error(f"ByteDaily: Error closing poll manually: {e}", exc_info=True)
             await interaction.followup.send(
-                embed=make_error_embed("Close Error", f"Failed to close poll: {e}"),
+                embed=make_error_embed("خطأ في الإغلاق • Close Error", f"فشل إغلاق التحدي / Failed to close poll: {e}"),
                 ephemeral=True,
             )
 
     @app_commands.command(
         name="bytedaily-force-cycle",
-        description="[أدمن] فرض دورة كاملة: إغلاق التحدي، نشر النتائج، تحديث اللوحة، وطرح تحدٍّ جديد",
+        description="[أدمن] فرض دورة كاملة: إغلاق، نتائج، لوحة، وتحدٍّ جديد / [Admin] Force full challenge cycle",
     )
     @app_commands.default_permissions(administrator=True)
     @app_commands.describe(
-        reset_leaderboard_points="إن كان True يتم تصفير نقاط وstreaks جميع الأعضاء قبل تحديث اللوحة",
+        reset_leaderboard_points="إن كان True يتم تصفير نقاط وstreaks جميع الأعضاء / Reset all points & streaks if True",
     )
     async def bytedaily_force_cycle(
         self,
@@ -237,7 +291,10 @@ class ByteDailyCog(commands.Cog, name="ByteDaily"):
 
         if not interaction.user.guild_permissions.administrator:
             await interaction.followup.send(
-                embed=make_error_embed("Permission Denied", "Only administrators can run this command."),
+                embed=make_error_embed(
+                    "غير مصرح • Permission Denied",
+                    "هذا الأمر مخصص للمسؤولين فقط. / Only administrators can run this command.",
+                ),
                 ephemeral=True,
             )
             return
@@ -245,8 +302,8 @@ class ByteDailyCog(commands.Cog, name="ByteDaily"):
         if not BD_CHANNEL_ID:
             await interaction.followup.send(
                 embed=make_error_embed(
-                    "Not Configured",
-                    "BD_CHANNEL_ID is not set in `.env`. Cannot force a new cycle.",
+                    "الإعداد غير مكتمل • Not Configured",
+                    "لم يتم ضبط `BD_CHANNEL_ID` في ملف `.env`. / BD_CHANNEL_ID is not set in `.env`.",
                 ),
                 ephemeral=True,
             )
@@ -254,7 +311,8 @@ class ByteDailyCog(commands.Cog, name="ByteDaily"):
 
         # Immediate ack so Discord never times out during the long cycle work
         await interaction.followup.send(
-            "⏳ جاري فرض الدورة الكاملة (إغلاق → نتائج → لوحة → تحدٍّ جديد)…",
+            "⏳ جاري فرض الدورة الكاملة (إغلاق → نتائج → لوحة → تحدٍّ جديد)…\n"
+            "⏳ Forcing complete cycle (close → results → leaderboard → new challenge)…",
             ephemeral=True,
         )
 
@@ -264,18 +322,19 @@ class ByteDailyCog(commands.Cog, name="ByteDaily"):
             )
             detail_bits = []
             if summary.get("closed_poll_id"):
-                detail_bits.append(f"أُغلق التحدي **#{summary['closed_poll_id']}**")
+                detail_bits.append(f"أُغلق التحدي **#{summary['closed_poll_id']}** • Closed poll #{summary['closed_poll_id']}")
             if summary.get("new_poll_id"):
-                detail_bits.append(f"التحدي الجديد **#{summary['new_poll_id']}**")
+                detail_bits.append(f"التحدي الجديد **#{summary['new_poll_id']}** • New poll #{summary['new_poll_id']}")
             if summary.get("points_reset"):
-                detail_bits.append(f"تم تصفير نقاط {summary.get('users_reset', 0)} مشارك")
+                detail_bits.append(f"تم تصفير نقاط {summary.get('users_reset', 0)} مشارك • Points reset for {summary.get('users_reset', 0)} users")
 
-            detail = (" • ".join(detail_bits) + "\n") if detail_bits else ""
+            detail = ("\n".join(detail_bits) + "\n") if detail_bits else ""
             await interaction.followup.send(
                 embed=make_success_embed(
-                    "Force Cycle Complete",
+                    "اكتملت الدورة الإجبارية • Force Cycle Complete",
                     "🔄 تم فرض دورة جديدة بنجاح! تم إغلاق التحدي السابق، نشر النتائج، "
                     "تحديث لوحة الصدارة، وطرح التحدي الجديد.\n"
+                    "Successfully advanced full cycle (previous closed, results posted, leaderboard updated, new challenge posted).\n\n"
                     f"{detail}",
                 ),
                 ephemeral=True,
@@ -283,18 +342,18 @@ class ByteDailyCog(commands.Cog, name="ByteDaily"):
         except Exception as e:
             log.error(f"ByteDaily: /bytedaily-force-cycle error: {e}", exc_info=True)
             await interaction.followup.send(
-                embed=make_error_embed("Force Cycle Error", f"Failed to force cycle: {e}"),
+                embed=make_error_embed("خطأ في الدورة • Force Cycle Error", f"فشل فرض الدورة / Failed to force cycle: {e}"),
                 ephemeral=True,
             )
 
     @app_commands.command(
         name="bytedaily-extend",
-        description="[أدمن] تمديد مدة التحدي النشط حالياً",
+        description="[أدمن] تمديد مدة التحدي النشط حالياً / [Admin] Extend active challenge duration",
     )
     @app_commands.default_permissions(administrator=True)
     @app_commands.describe(
-        hours="عدد الساعات المراد إضافتها",
-        minutes="عدد الدقائق المراد إضافتها (اختياري)",
+        hours="عدد الساعات المراد إضافتها / Hours to add",
+        minutes="عدد الدقائق المراد إضافتها (اختياري) / Minutes to add (optional)",
     )
     async def bytedaily_extend(
         self,
@@ -307,7 +366,10 @@ class ByteDailyCog(commands.Cog, name="ByteDaily"):
 
         if not interaction.user.guild_permissions.administrator:
             await interaction.followup.send(
-                embed=make_error_embed("Permission Denied", "Only administrators can run this command."),
+                embed=make_error_embed(
+                    "غير مصرح • Permission Denied",
+                    "هذا الأمر مخصص للمسؤولين فقط. / Only administrators can run this command.",
+                ),
                 ephemeral=True,
             )
             return
@@ -316,8 +378,9 @@ class ByteDailyCog(commands.Cog, name="ByteDaily"):
         if hours < 0 or minutes < 0 or total_minutes <= 0:
             await interaction.followup.send(
                 embed=make_error_embed(
-                    "قيمة غير صالحة",
-                    "يجب تحديد مدة تمديد موجبة (ساعات و/أو دقائق أكبر من صفر).",
+                    "قيمة غير صالحة • Invalid Value",
+                    "يجب تحديد مدة تمديد موجبة (ساعات و/أو دقائق أكبر من صفر).\n"
+                    "Must specify a positive duration (hours and/or minutes greater than 0).",
                 ),
                 ephemeral=True,
             )
@@ -327,8 +390,9 @@ class ByteDailyCog(commands.Cog, name="ByteDaily"):
         if not open_poll:
             await interaction.followup.send(
                 embed=make_error_embed(
-                    "لا يوجد تحدٍّ نشط",
-                    "لا يوجد تحدي ByteDaily مفتوح حالياً لتمديده.",
+                    "لا يوجد تحدٍّ نشط • No Active Poll",
+                    "لا يوجد تحدي ByteDaily مفتوح حالياً لتمديده.\n"
+                    "There is no currently active ByteDaily poll to extend.",
                 ),
                 ephemeral=True,
             )
@@ -343,29 +407,29 @@ class ByteDailyCog(commands.Cog, name="ByteDaily"):
             self.scheduler.nudge()
             unix = result["ends_at_unix"]
             await interaction.followup.send(
-                f"✅ تم تمديد وقت التحدي بنجاح! ينتهي الآن: <t:{unix}:F> (<t:{unix}:R>)",
+                f"✅ تم تمديد وقت التحدي بنجاح! ينتهي الآن • Challenge extended! Ends at: <t:{unix}:F> (<t:{unix}:R>)",
                 ephemeral=True,
             )
         except poll_service.PollDurationError as e:
             await interaction.followup.send(
-                embed=make_error_embed("تمديد غير صالح", str(e)),
+                embed=make_error_embed("تمديد غير صالح • Invalid Extension", str(e)),
                 ephemeral=True,
             )
         except Exception as e:
             log.error(f"ByteDaily: /bytedaily-extend error: {e}", exc_info=True)
             await interaction.followup.send(
-                embed=make_error_embed("Extend Error", f"Failed to extend poll: {e}"),
+                embed=make_error_embed("خطأ في التمديد • Extend Error", f"فشل تمديد وقت التحدي / Failed to extend poll: {e}"),
                 ephemeral=True,
             )
 
     @app_commands.command(
         name="bytedaily-reduce",
-        description="[أدمن] تقليص الوقت المتبقي للتحدي النشط حالياً",
+        description="[أدمن] تقليص الوقت المتبقي للتحدي النشط / [Admin] Reduce active challenge duration",
     )
     @app_commands.default_permissions(administrator=True)
     @app_commands.describe(
-        hours="عدد الساعات المراد خصمها",
-        minutes="عدد الدقائق المراد خصمها (اختياري)",
+        hours="عدد الساعات المراد خصمها / Hours to reduce",
+        minutes="عدد الدقائق المراد خصمها (اختياري) / Minutes to reduce (optional)",
     )
     async def bytedaily_reduce(
         self,
@@ -378,7 +442,10 @@ class ByteDailyCog(commands.Cog, name="ByteDaily"):
 
         if not interaction.user.guild_permissions.administrator:
             await interaction.followup.send(
-                embed=make_error_embed("Permission Denied", "Only administrators can run this command."),
+                embed=make_error_embed(
+                    "غير مصرح • Permission Denied",
+                    "هذا الأمر مخصص للمسؤولين فقط. / Only administrators can run this command.",
+                ),
                 ephemeral=True,
             )
             return
@@ -387,8 +454,9 @@ class ByteDailyCog(commands.Cog, name="ByteDaily"):
         if hours < 0 or minutes < 0 or total_minutes <= 0:
             await interaction.followup.send(
                 embed=make_error_embed(
-                    "قيمة غير صالحة",
-                    "يجب تحديد مدة تقليص موجبة (ساعات و/أو دقائق أكبر من صفر).",
+                    "قيمة غير صالحة • Invalid Value",
+                    "يجب تحديد مدة تقليص موجبة (ساعات و/أو دقائق أكبر من صفر).\n"
+                    "Must specify a positive reduction (hours and/or minutes greater than 0).",
                 ),
                 ephemeral=True,
             )
@@ -398,8 +466,9 @@ class ByteDailyCog(commands.Cog, name="ByteDaily"):
         if not open_poll:
             await interaction.followup.send(
                 embed=make_error_embed(
-                    "لا يوجد تحدٍّ نشط",
-                    "لا يوجد تحدي ByteDaily مفتوح حالياً لتقليص وقته.",
+                    "لا يوجد تحدٍّ نشط • No Active Poll",
+                    "لا يوجد تحدي ByteDaily مفتوح حالياً لتقليص وقته.\n"
+                    "There is no currently active ByteDaily poll to reduce.",
                 ),
                 ephemeral=True,
             )
@@ -414,24 +483,24 @@ class ByteDailyCog(commands.Cog, name="ByteDaily"):
             self.scheduler.nudge()
             unix = result["ends_at_unix"]
             await interaction.followup.send(
-                f"⏱️ تم تقليص وقت التحدي! ينتهي الآن: <t:{unix}:F> (<t:{unix}:R>)",
+                f"⏱️ تم تقليص وقت التحدي! ينتهي الآن • Challenge reduced! Ends at: <t:{unix}:F> (<t:{unix}:R>)",
                 ephemeral=True,
             )
         except poll_service.PollDurationError as e:
             await interaction.followup.send(
-                embed=make_error_embed("تقليص غير صالح", str(e)),
+                embed=make_error_embed("تقليص غير صالح • Invalid Reduction", str(e)),
                 ephemeral=True,
             )
         except Exception as e:
             log.error(f"ByteDaily: /bytedaily-reduce error: {e}", exc_info=True)
             await interaction.followup.send(
-                embed=make_error_embed("Reduce Error", f"Failed to reduce poll: {e}"),
+                embed=make_error_embed("خطأ في التقليص • Reduce Error", f"فشل تقليص وقت التحدي / Failed to reduce poll: {e}"),
                 ephemeral=True,
             )
 
     @app_commands.command(
         name="bytedaily-add-question",
-        description="[أدمن] إضافة سؤال جديد يدوياً إلى بنك أسئلة ByteDaily",
+        description="[أدمن] إضافة سؤال جديد يدوياً لبنك الأسئلة / [Admin] Add new question to bank",
     )
     @app_commands.default_permissions(administrator=True)
     @app_commands.choices(
@@ -453,19 +522,37 @@ class ByteDailyCog(commands.Cog, name="ByteDaily"):
         correct_choice: app_commands.Choice[str],
         explanation: str = "",
         category: str = "",
+        question_en: Optional[str] = None,
+        choice_a_en: Optional[str] = None,
+        choice_b_en: Optional[str] = None,
+        choice_c_en: Optional[str] = None,
+        choice_d_en: Optional[str] = None,
+        explanation_en: Optional[str] = None,
     ) -> None:
         """Admin command: Add question to bank."""
         await interaction.response.defer(ephemeral=True)
 
         if not interaction.user.guild_permissions.administrator:
             await interaction.followup.send(
-                embed=make_error_embed("Permission Denied", "Only administrators can run this command."),
+                embed=make_error_embed(
+                    "غير مصرح • Permission Denied",
+                    "هذا الأمر مخصص للمسؤولين فقط. / Only administrators can run this command.",
+                ),
                 ephemeral=True,
             )
             return
 
         try:
             tags = [category.strip()] if category and category.strip() else []
+            options_en = None
+            if choice_a_en or choice_b_en or choice_c_en or choice_d_en:
+                options_en = {
+                    "A": (choice_a_en or "").strip(),
+                    "B": (choice_b_en or "").strip(),
+                    "C": (choice_c_en or "").strip(),
+                    "D": (choice_d_en or "").strip(),
+                }
+
             new_id = await question_repo.insert(
                 question_text=question_text.strip(),
                 choice_a=choice_a.strip(),
@@ -476,26 +563,36 @@ class ByteDailyCog(commands.Cog, name="ByteDaily"):
                 explanation=explanation.strip(),
                 difficulty=1,
                 tags=tags,
+                question_en=question_en.strip() if question_en else None,
+                options_en=options_en,
+                choice_a_en=choice_a_en.strip() if choice_a_en else None,
+                choice_b_en=choice_b_en.strip() if choice_b_en else None,
+                choice_c_en=choice_c_en.strip() if choice_c_en else None,
+                choice_d_en=choice_d_en.strip() if choice_d_en else None,
+                explanation_en=explanation_en.strip() if explanation_en else None,
             )
             embed = make_success_embed(
-                "Question Added",
+                "تمت إضافة السؤال • Question Added",
+                f"تمت إضافة السؤال **#{new_id}** بنجاح إلى `bd_questions`!\n"
                 f"Successfully added question **#{new_id}** to `bd_questions`!",
             )
-            embed.add_field(name="Question", value=question_text, inline=False)
-            embed.add_field(name="Correct Answer", value=correct_choice.value, inline=True)
+            embed.add_field(name="السؤال • Question (AR)", value=question_text, inline=False)
+            if question_en:
+                embed.add_field(name="السؤال • Question (EN)", value=question_en, inline=False)
+            embed.add_field(name="الإجابة الصحيحة • Correct Answer", value=f"Option [{correct_choice.value}]", inline=True)
             if category:
-                embed.add_field(name="Category", value=category, inline=True)
+                embed.add_field(name="التصنيف • Category", value=category, inline=True)
             await interaction.followup.send(embed=embed, ephemeral=True)
         except Exception as e:
             log.error(f"ByteDaily: Error adding question: {e}", exc_info=True)
             await interaction.followup.send(
-                embed=make_error_embed("Add Error", f"Failed to add question: {e}"),
+                embed=make_error_embed("خطأ في الإضافة • Add Error", f"فشل إضافة السؤال / Failed to add question: {e}"),
                 ephemeral=True,
             )
 
     @app_commands.command(
         name="bytedaily-status",
-        description="[أدمن] عرض حالة نظام ByteDaily والإحصائيات الحالية",
+        description="[أدمن] عرض حالة نظام ByteDaily والإحصائيات / [Admin] View ByteDaily system status",
     )
     @app_commands.default_permissions(administrator=True)
     async def bytedaily_status(self, interaction: discord.Interaction) -> None:
@@ -504,7 +601,10 @@ class ByteDailyCog(commands.Cog, name="ByteDaily"):
 
         if not interaction.user.guild_permissions.administrator:
             await interaction.followup.send(
-                embed=make_error_embed("Permission Denied", "Only administrators can run this command."),
+                embed=make_error_embed(
+                    "غير مصرح • Permission Denied",
+                    "هذا الأمر مخصص للمسؤولين فقط. / Only administrators can run this command.",
+                ),
                 ephemeral=True,
             )
             return
@@ -516,12 +616,13 @@ class ByteDailyCog(commands.Cog, name="ByteDaily"):
             total_users = await user_repo.get_total_users()
 
             status_embed = make_info_embed(
-                title="⚙️ ByteDaily System Status",
-                description="Current state of ByteDaily database and scheduler.",
+                title="⚙️ حالة نظام ByteDaily • ByteDaily System Status",
+                description="الحالة الحالية لقاعدة البيانات ومجدول المهام.\n"
+                            "Current state of ByteDaily database and scheduler.",
             )
 
-            channel_mention = f"<#{BD_CHANNEL_ID}>" if BD_CHANNEL_ID else "⚠️ Not Configured"
-            status_embed.add_field(name="Target Channel", value=channel_mention, inline=False)
+            channel_mention = f"<#{BD_CHANNEL_ID}>" if BD_CHANNEL_ID else "⚠️ غير مضبوط • Not Configured"
+            status_embed.add_field(name="القناة المستهدفة • Target Channel", value=channel_mention, inline=False)
 
             if open_poll:
                 opened_at = open_poll.get("opened_at", "N/A")
@@ -530,27 +631,26 @@ class ByteDailyCog(commands.Cog, name="ByteDaily"):
                 closed_at = closed_poll.get("closed_at", "N/A")
                 poll_info = f"**Closed Poll #{closed_poll['id']}** (Awaiting Cleanup, Closed: {closed_at})"
             else:
-                poll_info = "No Active Poll (Idle)"
+                poll_info = "لا يوجد استبيان نشط حالياً (خامل) • No Active Poll (Idle)"
 
-            status_embed.add_field(name="Active Poll State", value=poll_info, inline=False)
-            status_embed.add_field(name="Active Question Bank Size", value=str(len(active_questions)), inline=True)
-            status_embed.add_field(name="Registered Users Count", value=str(total_users), inline=True)
+            status_embed.add_field(name="حالة الاستبيان النشط • Active Poll State", value=poll_info, inline=False)
+            status_embed.add_field(name="حجم بنك الأسئلة • Question Bank Size", value=f"{len(active_questions)} questions", inline=True)
+            status_embed.add_field(name="عدد المستخدمين المسجلين • Registered Users", value=f"{total_users} users", inline=True)
 
             await interaction.followup.send(embed=status_embed, ephemeral=True)
         except Exception as e:
             log.error(f"ByteDaily: Error fetching status: {e}", exc_info=True)
             await interaction.followup.send(
-                embed=make_error_embed("Status Error", f"Failed to fetch status: {e}"),
+                embed=make_error_embed("خطأ في الحالة • Status Error", f"فشل جلب حالة النظام / Failed to fetch status: {e}"),
                 ephemeral=True,
             )
 
-
     @app_commands.command(
         name="bytedaily-generate",
-        description="[أدمن] توليد أسئلة برمجة فوراً باستخدام الذكاء الاصطناعي وإضافتها لبنك الأسئلة",
+        description="[أدمن] توليد أسئلة بالذكاء الاصطناعي لبنك الأسئلة / [Admin] Generate questions via AI",
     )
     @app_commands.default_permissions(administrator=True)
-    @app_commands.describe(count="عدد الأسئلة المطلوب توليدها (الافتراضي: 5، الحد الأقصى: 10)")
+    @app_commands.describe(count="عدد الأسئلة المطلوب توليدها (1-10) / Number of questions to generate (1-10)")
     async def bytedaily_generate(
         self,
         interaction: discord.Interaction,
@@ -561,7 +661,10 @@ class ByteDailyCog(commands.Cog, name="ByteDaily"):
 
         if not interaction.user.guild_permissions.administrator:
             await interaction.followup.send(
-                embed=make_error_embed("Permission Denied", "Only administrators can run this command."),
+                embed=make_error_embed(
+                    "غير مصرح • Permission Denied",
+                    "هذا الأمر مخصص للمسؤولين فقط. / Only administrators can run this command.",
+                ),
                 ephemeral=True,
             )
             return
@@ -572,25 +675,25 @@ class ByteDailyCog(commands.Cog, name="ByteDaily"):
             inserted = await ai_generator_service.generate_and_store_questions(count=count)
             if inserted:
                 embed = make_success_embed(
-                    "AI Generation Complete",
-                    f"✅ Successfully generated and stored **{inserted}** question(s) into `bd_questions` via Gemini!",
+                    "اكتمل التوليد بالذكاء الاصطناعي • AI Generation Complete",
+                    f"✅ تم توليد وتخزين **{inserted}** سؤالاً بنجاح في `bd_questions` عبر Gemini!\n"
+                    f"Successfully generated and stored **{inserted}** question(s) into `bd_questions` via Gemini!",
                 )
-                embed.add_field(name="Requested", value=str(count), inline=True)
-                embed.add_field(name="Inserted", value=str(inserted), inline=True)
+                embed.add_field(name="المطلوب • Requested", value=str(count), inline=True)
+                embed.add_field(name="تمت إضافتها • Inserted", value=str(inserted), inline=True)
             else:
                 embed = make_error_embed(
-                    "Generation Failed",
-                    "Gemini returned 0 valid questions.\n"
-                    "Check `GEMINI_API_KEY` in `.env` and Gemini API quota/availability.",
+                    "فشل التوليد • Generation Failed",
+                    "لم يُرجع Gemini أي أسئلة صالحة. يرجى التحقق من `GEMINI_API_KEY` والحصص المتاحة.\n"
+                    "Gemini returned 0 valid questions. Check GEMINI_API_KEY and API quota.",
                 )
             await interaction.followup.send(embed=embed, ephemeral=True)
         except Exception as e:
             log.error(f"ByteDaily: Error in /bytedaily-generate: {e}", exc_info=True)
             await interaction.followup.send(
-                embed=make_error_embed("Generation Error", f"An unexpected error occurred: `{e}`"),
+                embed=make_error_embed("خطأ في التوليد • Generation Error", f"حدث خطأ غير متوقع / An unexpected error occurred: `{e}`"),
                 ephemeral=True,
             )
-
 
     # ─────────────────────────────────────────────────────────────────────────
     # Live Leaderboard & Personal Rank
@@ -598,7 +701,7 @@ class ByteDailyCog(commands.Cog, name="ByteDaily"):
 
     @app_commands.command(
         name="bytedaily-leaderboard",
-        description="[أدمن] تحديث لوحة المتصدرين الثابتة فوراً في قناة اللوحة",
+        description="[أدمن] تحديث لوحة المتصدرين الثابتة فوراً / [Admin] Refresh live leaderboard message",
     )
     @app_commands.default_permissions(administrator=True)
     async def bytedaily_leaderboard_refresh(self, interaction: discord.Interaction) -> None:
@@ -607,7 +710,10 @@ class ByteDailyCog(commands.Cog, name="ByteDaily"):
 
         if not interaction.user.guild_permissions.administrator:
             await interaction.followup.send(
-                embed=make_error_embed("Permission Denied", "Only administrators can run this command."),
+                embed=make_error_embed(
+                    "غير مصرح • Permission Denied",
+                    "هذا الأمر مخصص للمسؤولين فقط. / Only administrators can run this command.",
+                ),
                 ephemeral=True,
             )
             return
@@ -615,8 +721,9 @@ class ByteDailyCog(commands.Cog, name="ByteDaily"):
         if not BD_LEADERBOARD_CHANNEL_ID:
             await interaction.followup.send(
                 embed=make_error_embed(
-                    "Not Configured",
-                    "BD_LEADERBOARD_CHANNEL_ID is not set in `.env`. Add it to enable the live leaderboard.",
+                    "الإعداد غير مكتمل • Not Configured",
+                    "لم يتم ضبط `BD_LEADERBOARD_CHANNEL_ID` في ملف `.env`.\n"
+                    "BD_LEADERBOARD_CHANNEL_ID is not set in `.env`.",
                 ),
                 ephemeral=True,
             )
@@ -628,21 +735,22 @@ class ByteDailyCog(commands.Cog, name="ByteDaily"):
             channel_mention = lb_channel.mention if lb_channel else f"<#{BD_LEADERBOARD_CHANNEL_ID}>"
             await interaction.followup.send(
                 embed=make_success_embed(
-                    "Leaderboard Refreshed",
-                    f"✅ Live leaderboard has been updated in {channel_mention}.",
+                    "تم تحديث اللوحة • Leaderboard Refreshed",
+                    f"✅ تم تحديث لوحة المتصدرين المباشرة في {channel_mention} بنجاح!\n"
+                    f"Live leaderboard has been updated in {channel_mention}.",
                 ),
                 ephemeral=True,
             )
         except Exception as e:
             log.error(f"ByteDaily: Error refreshing leaderboard: {e}", exc_info=True)
             await interaction.followup.send(
-                embed=make_error_embed("Refresh Error", f"Failed to refresh leaderboard: {e}"),
+                embed=make_error_embed("خطأ في التحديث • Refresh Error", f"فشل تحديث اللوحة / Failed to refresh leaderboard: {e}"),
                 ephemeral=True,
             )
 
     @app_commands.command(
         name="bytedaily-rank",
-        description="عرض إحصائياتك الشخصية ورتبتك في تحدي ByteDaily",
+        description="عرض إحصائياتك ورتبتك / View your personal ByteDaily rank and stats",
     )
     async def bytedaily_rank(self, interaction: discord.Interaction) -> None:
         """Public command: Show the caller's personal ByteDaily stats card."""
@@ -654,10 +762,12 @@ class ByteDailyCog(commands.Cog, name="ByteDaily"):
             if not stats:
                 await interaction.followup.send(
                     embed=make_info_embed(
-                        title="📊 بياناتك في ByteDaily",
+                        title="📊 بياناتك في ByteDaily | Your ByteDaily Profile",
                         description=(
                             "لم تشارك في أي تحدٍّ بعد!\n"
-                            "حل التحدي اليومي للبدء في تجميع النقاط والترتيب. 🚀"
+                            "You haven't participated in any challenges yet!\n\n"
+                            "حل التحدي اليومي للبدء في تجميع النقاط والترتيب. 🚀\n"
+                            "Solve the daily challenge to start earning points and climb the ranks. 🚀"
                         ),
                     ),
                     ephemeral=True,
@@ -677,7 +787,7 @@ class ByteDailyCog(commands.Cog, name="ByteDaily"):
             rank_str = f"#{rank}" if rank else "—"
 
             embed = discord.Embed(
-                title=f"📊 إحصائياتك في ByteDaily",
+                title=f"📊 إحصائياتك في ByteDaily | Your ByteDaily Stats",
                 color=discord.Color.blurple(),
             )
             embed.set_author(
@@ -685,43 +795,43 @@ class ByteDailyCog(commands.Cog, name="ByteDaily"):
                 icon_url=interaction.user.display_avatar.url,
             )
             embed.add_field(
-                name="🏅 الترتيب",
-                value=f"**{rank_str}** من أصل {total_users} مشارك",
+                name="🏅 الترتيب • Rank",
+                value=f"**{rank_str}** / {total_users} (مشارك • participants)",
                 inline=True,
             )
             embed.add_field(
-                name="⭐ النقاط",
+                name="⭐ النقاط • Points",
                 value=f"**{points}** pts",
                 inline=True,
             )
             embed.add_field(
-                name="🔥 السلسلة الحالية / الأفضل",
+                name="🔥 السلسلة • Streak (Current/Best)",
                 value=f"**{current_streak}** / **{best_streak}**",
                 inline=True,
             )
             embed.add_field(
-                name="✅ إجابات صحيحة",
+                name="✅ إجابات صحيحة • Correct",
                 value=f"**{correct}** / {total_ans}",
                 inline=True,
             )
             embed.add_field(
-                name="🎯 نسبة الدقة",
+                name="🎯 نسبة الدقة • Accuracy",
                 value=accuracy,
                 inline=True,
             )
             embed.add_field(
-                name="❌ إجابات خاطئة",
+                name="❌ إجابات خاطئة • Incorrect",
                 value=str(wrong),
                 inline=True,
             )
-            embed.set_footer(text="أحل التحدي اليومي لتحسين ترتيبك!")
+            embed.set_footer(text="حل التحدي اليومي لتحسين ترتيبك! • Solve daily challenges to climb the ranks!")
 
             await interaction.followup.send(embed=embed, ephemeral=True)
 
         except Exception as e:
             log.error(f"ByteDaily: /bytedaily-rank error for user {user_id}: {e}", exc_info=True)
             await interaction.followup.send(
-                embed=make_error_embed("خطأ", f"فشل جلب إحصائياتك: {e}"),
+                embed=make_error_embed("خطأ • Error", f"فشل جلب إحصائياتك / Failed to fetch stats: {e}"),
                 ephemeral=True,
             )
 

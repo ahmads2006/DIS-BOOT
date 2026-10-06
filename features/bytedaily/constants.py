@@ -58,11 +58,17 @@ CHOICE_EMOJIS = {
 }
 
 # ── Persistent view custom_id prefixes ──────────────────────────────────────
-# Pattern: f"{CUSTOM_ID_PREFIX_ANSWER}{poll_id}_{choice}" or f"{CUSTOM_ID_PREFIX_RESULT}{poll_id}"
+# Pattern: f"{CUSTOM_ID_PREFIX_ANSWER}{poll_id}_{choice}" or f"{CUSTOM_ID_PREFIX_RESULT}{poll_id}" or f"{CUSTOM_ID_PREFIX_TRANSLATE}{poll_id}"
 CUSTOM_ID_PREFIX_ANSWER: str = "bd_answer_"
 CUSTOM_ID_PREFIX_RESULT: str = "bd_show_result_"
+CUSTOM_ID_PREFIX_TRANSLATE: str = "bd_translate_"
 
 # ── Question selection ───────────────────────────────────────────────────────
 # History-based dedupe lives in bd_question_history (see question_service).
 # Kept for reference / legacy callers; selection no longer uses a fixed lookback window.
 RECENT_QUESTION_LOOKBACK: int = 30
+
+# ── Role Names for Language Detection ────────────────────────────────────────
+ROLE_ENGLISH: str = os.getenv("BD_ROLE_ENGLISH", "English")
+ROLE_ARABIC: str = os.getenv("BD_ROLE_ARABIC", "Arabic")
+

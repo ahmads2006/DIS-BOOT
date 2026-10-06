@@ -88,3 +88,38 @@ async def count_for_poll(poll_id: int) -> Dict[str, int]:
             'wrong': int(row.get('wrong') or 0),
         }
     return {'total': 0, 'correct': 0, 'wrong': 0}
+
+
+async def get_choice_distribution(poll_id: int) -> Dict[str, Any]:
+    """
+    Return distribution per option (A, B, C, D) with counts and percentages.
+    Used for revealing anti-bandwagon statistics ephemerally after answering.
+    """
+    rows = await bd_db.fetch(
+        """
+        SELECT chosen_answer, COUNT(*)::int AS count
+        FROM bd_answers
+        WHERE poll_id = $1
+        GROUP BY chosen_answer
+        """,
+        poll_id,
+    )
+    counts = {"A": 0, "B": 0, "C": 0, "D": 0}
+    total = 0
+    for r in rows:
+        ans = str(r.get("chosen_answer", "")).upper()
+        cnt = int(r.get("count", 0))
+        if ans in counts:
+            counts[ans] = cnt
+        total += cnt
+
+    percentages = {}
+    for choice, count in counts.items():
+        percentages[choice] = round((count / total) * 100) if total > 0 else 0
+
+    return {
+        "total": total,
+        "counts": counts,
+        "percentages": percentages,
+    }
+

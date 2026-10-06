@@ -5,7 +5,8 @@ All queries run against the bd_db singleton pool.
 Pure SQL via asyncpg — no ORM. Returns plain dicts.
 """
 
-from typing import Any, Dict, List, Optional
+import json
+from typing import Any, Dict, List, Optional, Union
 from ..client import bd_db
 
 
@@ -67,26 +68,79 @@ async def insert(
     explanation: str = '',
     difficulty: int = 1,
     tags: Optional[List[str]] = None,
+    question_en: Optional[str] = None,
+    options_en: Optional[Union[Dict[str, str], str]] = None,
+    choice_a_en: Optional[str] = None,
+    choice_b_en: Optional[str] = None,
+    choice_c_en: Optional[str] = None,
+    choice_d_en: Optional[str] = None,
+    explanation_en: Optional[str] = None,
 ) -> int:
-    """Insert a new question. Returns the new question ID."""
-    return await bd_db.fetchval(
-        """
-        INSERT INTO bd_questions
-            (question_text, choice_a, choice_b, choice_c, choice_d,
-             correct_answer, explanation, difficulty, tags)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-        RETURNING id
-        """,
-        question_text,
-        choice_a,
-        choice_b,
-        choice_c,
-        choice_d,
-        correct_answer,
-        explanation,
-        difficulty,
-        tags or [],
+    """
+    Insert a new question with optional English translations.
+    Returns the new question ID.
+    """
+    options_en_json = (
+        json.dumps(options_en)
+        if isinstance(options_en, dict)
+        else (options_en if isinstance(options_en, str) else None)
     )
+
+    if isinstance(options_en, dict):
+        choice_a_en = choice_a_en or options_en.get("A") or options_en.get("a")
+        choice_b_en = choice_b_en or options_en.get("B") or options_en.get("b")
+        choice_c_en = choice_c_en or options_en.get("C") or options_en.get("c")
+        choice_d_en = choice_d_en or options_en.get("D") or options_en.get("d")
+
+    try:
+        return await bd_db.fetchval(
+            """
+            INSERT INTO bd_questions
+                (question_text, choice_a, choice_b, choice_c, choice_d,
+                 correct_answer, explanation, difficulty, tags,
+                 question_en, options_en, choice_a_en, choice_b_en, choice_c_en, choice_d_en, explanation_en)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::jsonb, $12, $13, $14, $15, $16)
+            RETURNING id
+            """,
+            question_text,
+            choice_a,
+            choice_b,
+            choice_c,
+            choice_d,
+            correct_answer,
+            explanation,
+            difficulty,
+            tags or [],
+            question_en,
+            options_en_json,
+            choice_a_en,
+            choice_b_en,
+            choice_c_en,
+            choice_d_en,
+            explanation_en,
+        )
+    except Exception as e:
+        # Fallback to legacy insert if columns don't exist yet on unmigrated db
+        if "question_en" in str(e) or "column" in str(e).lower():
+            return await bd_db.fetchval(
+                """
+                INSERT INTO bd_questions
+                    (question_text, choice_a, choice_b, choice_c, choice_d,
+                     correct_answer, explanation, difficulty, tags)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+                RETURNING id
+                """,
+                question_text,
+                choice_a,
+                choice_b,
+                choice_c,
+                choice_d,
+                correct_answer,
+                explanation,
+                difficulty,
+                tags or [],
+            )
+        raise
 
 
 async def deactivate(question_id: int) -> bool:

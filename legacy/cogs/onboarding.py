@@ -1,12 +1,20 @@
+"""
+Onboarding Cog — Automatically sends bilingual onboarding flow when members accept rules.
+"""
+
 import discord
 from discord.ext import commands
-from config import RULES_ACCEPTED_ROLE_NAMES, ONBOARDING_INITIAL_PROMPT
-from legacy.core.state import onboarding_sent_to
+
+from config import RULES_ACCEPTED_ROLE_NAMES
 from legacy.core.logger import log
+from legacy.core.state import onboarding_sent_to
 from legacy.views.onboarding_views import LanguageSelectView
 
+
 class OnboardingCog(commands.Cog, name="Onboarding"):
-    def __init__(self, bot: commands.Bot):
+    """Handles automatic member onboarding triggers."""
+
+    def __init__(self, bot: commands.Bot) -> None:
         self.bot = bot
 
     def _has_rules_role(self, member: discord.Member) -> bool:
@@ -20,7 +28,20 @@ class OnboardingCog(commands.Cog, name="Onboarding"):
         try:
             dm = await member.create_dm()
             view = LanguageSelectView(bot=self.bot, guild_id=member.guild.id)
-            await dm.send(ONBOARDING_INITIAL_PROMPT, view=view)
+            embed = discord.Embed(
+                title="🌟 مرحباً بك في مجتمع المطورين! | Welcome to Dev Community!",
+                description=(
+                    "━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+                    "🇸🇦 **يسعدنا انضمامك إلينا!**\n"
+                    "يرجى اختيار لغتك المفضلة لبدء تخصيص حسابك واختيار مسارك البرمجي:\n\n"
+                    "🇬🇧 **We are thrilled to have you here!**\n"
+                    "Please select your preferred language to customize your profile and select your track:\n\n"
+                    "━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+                ),
+                color=discord.Color.from_rgb(88, 101, 242),
+            )
+            embed.set_footer(text="Programming & Dev Community • Onboarding")
+            await dm.send(embed=embed, view=view)
             onboarding_sent_to.add(member.id)
             log.info(f"Sent onboarding DM to {member.name} ({member.id})")
             return True
@@ -32,21 +53,28 @@ class OnboardingCog(commands.Cog, name="Onboarding"):
             return False
 
     @commands.Cog.listener()
-    async def on_member_update(self, before: discord.Member, after: discord.Member):
-        """إرسال واجهة التأهيل عند منح رتبة قبول القوانين"""
+    async def on_member_update(
+        self, before: discord.Member, after: discord.Member
+    ) -> None:
+        """Send onboarding interface when rules accepted role is assigned."""
         before_roles = {r.name for r in before.roles}
         after_roles = {r.name for r in after.roles}
 
-        new_roles = [r for r in RULES_ACCEPTED_ROLE_NAMES if r in after_roles and r not in before_roles]
+        new_roles = [
+            r
+            for r in RULES_ACCEPTED_ROLE_NAMES
+            if r in after_roles and r not in before_roles
+        ]
         if new_roles:
             log.info(f"Member {after.name} accepted rules (Role: {new_roles[0]})")
             await self._send_onboarding(after)
 
     @commands.Cog.listener()
-    async def on_member_join(self, member: discord.Member):
-        """فحص العضو عند الانضمام إذا كان يحمل رتبة القبول مسبقاً"""
+    async def on_member_join(self, member: discord.Member) -> None:
+        """Check member on join if they already hold accepted role."""
         if self._has_rules_role(member):
             await self._send_onboarding(member)
 
-async def setup(bot: commands.Bot):
+
+async def setup(bot: commands.Bot) -> None:
     await bot.add_cog(OnboardingCog(bot))

@@ -78,40 +78,124 @@ DATABASE_URL = os.getenv("DATABASE_URL", "")
 SUPABASE_URL = os.getenv("SUPABASE_URL", "")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY", "")
 
-# النصوص والترجمات للأونبوردنغ
+# النصوص والترجمات للأونبوردنغ والاختبارات التقنية
 ONBOARDING_INITIAL_PROMPT = "Choose your language / اختر اللغة:"
 
-ONBOARDING_COPY = {
+EXAM_BILINGUAL_COPY = {
     "ar": {
-        "choose_lang": "اختر اللغة / Choose your language:",
+        "landing_title": "🧪 نظام الاختبارات التقنية وتحديد المستوى",
+        "landing_desc": (
+            "🎯 **مرحباً بك في نظام التقييم البرمجي المعتمد!**\n\n"
+            "هذا الاختبار يتيح لك إثبات خبرتك التقنية والحصول على رتبة المطور المعتمد في السيرفر.\n"
+            "يرجى اختيار لغة الاختبار المفضلة للمتابعة أدناه:"
+        ),
+        "track_select_title": "🧪 نظام الاختبارات التقنية • اختيار المسار",
+        "track_select_desc": (
+            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+            "🎯 **اختر تخصصك البرمجي من القائمة المنسدلة أدناه لبدء الاختبار:**\n\n"
+            "📋 **تعليمات وقواعد الاختبار:**\n"
+            "• 📝 عدد الأسئلة: **3 أسئلة تقنية**\n"
+            "• ⏱️ الوقت المتاح: **60 ثانية لكل سؤال**\n"
+            "• 🎯 شرط الاجتياز: **الإجابة الصحيحة بنسبة 100%**\n"
+            "• 🏷️ عند النجاح: **تُمنح الرتبة تلقائياً وتُعلن في الشات العام**\n"
+            "• ⏳ في حال عدم الاجتياز: **فترة انتظار أسبوع لنفس التخصص**\n\n"
+            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        ),
+        "track_select_placeholder": "🔽 اختر تخصصك البرمجي لبدء الاختبار...",
+        "track_locked": "✅ تم تثبيت المسار وبدء الاختبار...",
+        "change_lang_btn": "🌐 تغيير اللغة / Change Language",
+        "cooldown_msg": "لا يمكنك إعادة هذا الاختبار حالياً. يرجى الانتظار",
+        "cooldown_hours": "ساعة",
+        "no_questions": "❌ لا توجد أسئلة متاحة لهذا المسار حالياً.",
+        "active_exam_exists": "⚠️ لديك اختبار نشط بالفعل في الرسائل الخاصة.",
+        "dm_closed": "❌ لا أستطيع إرسال رسائل خاصة لك. يرجى تفعيل الرسائل المباشرة في إعدادات السيرفر ثم المحاولة مجدداً.",
+        "timeout_msg": "⏰ انتهى الوقت المحدد للسؤال (60 ثانية)! تم إلغاء جلسة الاختبار الحالية.",
+        "exam_cancel": "❌ تم إلغاء جلسة الاختبار بنجاح.",
+        "question_title": "السؤال {index} من {total} • الاختبار التقني",
+        "progress_label": "مستوى التقدم",
+        "option_label": "الخيار",
+        "timer_footer": "⏰ الوقت: 60 ثانية • اختر الإجابة من الأزرار أدناه ⬇️",
+        "success_title": "🎉 نتيجة الاختبار: اجتياز كامل!",
+        "success_dm": (
+            "🎉 **مبارك! لقد اجتزت الاختبار التقني بنجاح تام وتم منحك الرتبة في السيرفر.**\n\n"
+            "🏷️ **الرتبة الممنوحة:** **{role_name}**\n"
+            "📊 **الدرجة:** `{score}/{total}` (علامة كاملة 100% ⭐)\n\n"
+            "✅ تم نشر بطاقة اعتمادك البرمجية في روم الشات العام بالسيرفر."
+        ),
+        "fail_title": "📊 نتيجة الاختبار: لم يتم الاجتياز",
+        "fail_dm": (
+            "❌ **لم تجتز الاختبار هذه المرة.**\n\n"
+            "📊 **النتيجة المحققة:** `{score}/{total}` (المطلوب 100% للاجتياز)\n"
+            "⛔ **فترة الانتظار:** يمكنك إعادة المحاولة بعد أسبوع لنفس التخصص.\n"
+            "💡 **ملاحظة:** يمكنك تجربة اختبار مسار آخر في أي وقت."
+        ),
+        "explanation_header": "📖 الشرح والتوضيح",
+        "cleanup_footer": "⏳ سيتم تنظيف وحذف محادثة هذا الاختبار تلقائياً خلال 30 ثانية...",
+        "choose_level": "اختر مستواك البرمجي للبدء:",
         "beginner": "مبتدئ 🧑‍🎓",
         "professional": "محترف 🧑‍💻",
-        "choose_level": "اختر مستواك البرمجي للبدء:",
         "junior_done": "✅ تم منحك رتبة **📝 | Junior Developer**. مرحباً بك في المجتمع!",
         "choose_spec": "اختر تخصصك للانتقال إلى الاختبار التقني:",
         "exam_started": "🧪 تم إرسال الاختبار إلى رسائلك الخاصة. بالتوفيق! 🍀",
-        "dm_closed": "❌ لا أستطيع إرسال رسائل خاصة لك. يرجى فتح الرسائل الخاصة في إعدادات السيرفر ثم المحاولة مجدداً.",
-        "cooldown_msg": "لا يمكنك إعادة هذا الاختبار حالياً. يرجى الانتظار",
-        "timeout_msg": "⏰ انتهى الوقت المحدد للسؤال! تم إلغاء الاختبار.",
-        "exam_cancel": "❌ تم إلغاء الاختبار.",
-        "success_dm": "🎉 مبارك! لقد اجتزت الاختبار بنجاح وتم منحك الرتبة في السيرفر ✅",
-        "fail_dm": "❌ لم تجتز الاختبار هذه المرة.\n⛔ يمكنك إعادة المحاولة بعد انتهاء فترة الانتظار (أسبوع).\n💡 يمكنك تجربة تخصص آخر الآن.",
-        "active_exam_exists": "⚠️ لديك اختبار نشط بالفعل في الرسائل الخاصة.",
     },
     "en": {
-        "choose_lang": "Choose your language:",
+        "landing_title": "🧪 Technical Assessment & Certification System",
+        "landing_desc": (
+            "🎯 **Welcome to the Certified Technical Evaluation System!**\n\n"
+            "This assessment allows you to prove your engineering skills and earn your verified role in the server.\n"
+            "Please select your preferred exam language below to proceed:"
+        ),
+        "track_select_title": "🧪 Technical Exam System • Select Your Track",
+        "track_select_desc": (
+            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+            "🎯 **Select your programming track from the dropdown below to begin:**\n\n"
+            "📋 **Exam Instructions & Rules:**\n"
+            "• 📝 Question Count: **3 Technical Questions**\n"
+            "• ⏱️ Time Limit: **60 seconds per question**\n"
+            "• 🎯 Passing Score: **100% correct answers required**\n"
+            "• 🏷️ On Passing: **Role is automatically assigned & announced in general chat**\n"
+            "• ⏳ On Failure: **1-week cooldown for the same track**\n\n"
+            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        ),
+        "track_select_placeholder": "🔽 Select your programming track to begin...",
+        "track_locked": "✅ Track locked. Starting exam...",
+        "change_lang_btn": "🌐 تغيير اللغة / Change Language",
+        "cooldown_msg": "You cannot retake this exam yet. Please wait",
+        "cooldown_hours": "hour(s)",
+        "no_questions": "❌ No questions available for this track at the moment.",
+        "active_exam_exists": "⚠️ You already have an active exam in progress in your DMs.",
+        "dm_closed": "❌ Cannot send you direct messages. Please enable DMs in server privacy settings and try again.",
+        "timeout_msg": "⏰ Time is up for this question (60s)! The exam session has been cancelled.",
+        "exam_cancel": "❌ Exam session has been cancelled successfully.",
+        "question_title": "Question {index} of {total} • Technical Exam",
+        "progress_label": "Progress",
+        "option_label": "Option",
+        "timer_footer": "⏰ Time: 60s • Choose your answer from the buttons below ⬇️",
+        "success_title": "🎉 Exam Result: Passed with Distinction!",
+        "success_dm": (
+            "🎉 **Congratulations! You passed the technical exam with a perfect score and received your role!**\n\n"
+            "🏷️ **Role Granted:** **{role_name}**\n"
+            "📊 **Score:** `{score}/{total}` (100% ⭐)\n\n"
+            "✅ Your certification badge has been announced in the server general chat."
+        ),
+        "fail_title": "📊 Exam Result: Not Passed",
+        "fail_dm": (
+            "❌ **You did not pass the exam this time.**\n\n"
+            "📊 **Your Score:** `{score}/{total}` (100% required to pass)\n"
+            "⛔ **Cooldown:** You can retry after 1 week for this same track.\n"
+            "💡 **Tip:** You may explore and take an exam in a different track right away."
+        ),
+        "explanation_header": "📖 Explanation",
+        "cleanup_footer": "⏳ This exam conversation will be automatically cleaned up in 30 seconds...",
+        "choose_level": "Choose your programming level to begin:",
         "beginner": "Beginner 🧑‍🎓",
         "professional": "Professional 🧑‍💻",
-        "choose_level": "Choose your programming level to begin:",
         "junior_done": "✅ You have been granted the **📝 | Junior Developer** role. Welcome to the community!",
         "choose_spec": "Choose your specialization to continue to the technical exam:",
         "exam_started": "🧪 The exam has been sent to your DMs. Good luck! 🍀",
-        "dm_closed": "❌ I cannot send you DMs. Please enable direct messages in server privacy settings and try again.",
-        "cooldown_msg": "You cannot retake this exam yet. Please wait",
-        "timeout_msg": "⏰ Time is up for this question! The exam has been cancelled.",
-        "exam_cancel": "❌ Exam cancelled.",
-        "success_dm": "🎉 Congratulations! You passed the exam and received your role in the server ✅",
-        "fail_dm": "❌ You did not pass the exam this time.\n⛔ You can retry after the 1-week cooldown.\n💡 You can try another specialization right now.",
-        "active_exam_exists": "⚠️ You already have an active exam in progress in your DMs.",
     },
 }
+
+# Alias for backward compatibility
+ONBOARDING_COPY = EXAM_BILINGUAL_COPY
+

@@ -31,6 +31,7 @@ import discord
 from discord.ext import tasks
 
 from bridge.legacy_adapter import log
+from core.sentry import capture_exception
 from .constants import ANSWER_WINDOW_SECONDS, BD_CHANNEL_ID
 from .database.repositories import poll_repo, settings_repo, answer_repo
 from .embeds import (
@@ -50,6 +51,7 @@ from .views import (
     ByteDailyResultView,
     DynamicAnswerButton,
     DynamicResultButton,
+    DynamicTranslateButton,
 )
 
 # Re-check ends_at frequently so expiry / extend / reduce are honored promptly.
@@ -82,7 +84,11 @@ class ByteDailyScheduler:
         if self._dynamic_items_registered:
             return
         try:
-            self.bot.add_dynamic_items(DynamicAnswerButton, DynamicResultButton)
+            self.bot.add_dynamic_items(
+                DynamicAnswerButton,
+                DynamicResultButton,
+                DynamicTranslateButton,
+            )
             self._dynamic_items_registered = True
             log.info("ByteDaily: Registered DynamicItem classes globally with bot.")
         except Exception as e:
@@ -297,6 +303,16 @@ class ByteDailyScheduler:
     async def _before_midnight_generate(self) -> None:
         await self.bot.wait_until_ready()
 
+    @_check_loop.error
+    async def _on_check_loop_error(self, error: Exception) -> None:
+        log.error(f"[Scheduler] Watchdog loop encountered unexpected error: {error}", exc_info=True)
+        capture_exception(error, tags={"task": "bytedaily_check_loop"})
+
+    @_midnight_generate.error
+    async def _on_midnight_generate_error(self, error: Exception) -> None:
+        log.error(f"[Scheduler] Midnight generation loop encountered unexpected error: {error}", exc_info=True)
+        capture_exception(error, tags={"task": "bytedaily_midnight_generate"})
+
     # ------------------------------------------------------------------ #
     # Channel / Discord helpers                                            #
     # ------------------------------------------------------------------ #
@@ -368,6 +384,26 @@ class ByteDailyScheduler:
             )
         except Exception as e:
             log.warning(f"ByteDaily: Unexpected error pinning message {msg.id}: {e}")
+
+        # Automatic Discussion Thread Creation
+        try:
+            thread_name = f"💬 مناقشة تحدي اليوم #{poll_id} | Daily Discussion #{poll_id}"
+            thread = await msg.create_thread(
+                name=thread_name,
+                auto_archive_duration=1440,
+            )
+            initial_prompt = (
+                "💡 **شاركونا تحليلاتكم وطريقة حلكم للتحدي هنا!**\n"
+                "Share your thoughts, approaches, and code snippets for today's challenge below! 🚀"
+            )
+            await thread.send(initial_prompt)
+            log.info(f"ByteDaily: Created discussion thread '{thread_name}' for poll #{poll_id}.")
+        except discord.Forbidden:
+            log.warning(
+                f"ByteDaily: Cannot create thread on message {msg.id} — bot lacks thread permissions in channel {channel.id}."
+            )
+        except Exception as e:
+            log.warning(f"ByteDaily: Unexpected error creating discussion thread for poll #{poll_id}: {e}")
 
         await poll_service.update_message_ids(poll_id, message_id=msg.id)
         await rolling_window.save_current_question(msg.id)

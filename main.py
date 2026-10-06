@@ -1,9 +1,18 @@
 import asyncio
 import os
+import signal
+import sys
 import discord
 from discord.ext import commands
 from config import TOKEN, GUILD_ID, API_PORT
-from legacy.core.logger import log
+from core.logging import log, measure_duration
+from core.sentry import init_sentry, capture_interaction_error, capture_exception, flush as sentry_flush
+from database.connection import (
+    verify_connectivity,
+    run_pending_migrations,
+    start_pool_monitor,
+    release as db_pool_release,
+)
 from legacy.core.database import db
 from legacy.api.server import AsyncAPIServer
 
@@ -34,7 +43,16 @@ class DeveloperBot(commands.Bot):
             name="render-keepalive",
         )
 
-        # ── 1. Legacy database ──
+        # ── 1. Database Connectivity Check & Migrations ──
+        log.info("Verifying database connectivity...")
+        db_connected = await verify_connectivity()
+        if db_connected:
+            log.info("Database connectivity verified successfully. Running pending migrations...")
+            await run_pending_migrations()
+        else:
+            log.warning("Database connectivity check failed or connection pool is not yet available.")
+
+        # Legacy database initialization
         await db.initialize()
 
         # ── 2–5. Legacy cogs ──
@@ -50,6 +68,7 @@ class DeveloperBot(commands.Bot):
                 log.info(f"Loaded extension: {ext}")
             except Exception as e:
                 log.error(f"Failed to load extension {ext}: {e}")
+                capture_exception(e, tags={"extension": ext})
 
         # ── 6. ByteDaily cog ──
         # DynamicItems are registered at the start of cog_load() BEFORE DB init.
@@ -58,8 +77,23 @@ class DeveloperBot(commands.Bot):
             log.info("Loaded extension: features.bytedaily.cog")
         except Exception as e:
             log.error(f"Failed to load ByteDaily extension: {e}")
+            capture_exception(e, tags={"extension": "features.bytedaily.cog"})
 
-        # ── 7. Slash command sync (AFTER all extensions) ──
+        # ── 7. Warm up ByteDaily active poll cache ──
+        try:
+            from features.bytedaily.services import poll_service
+            active_poll = await poll_service.get_open_poll()
+            if active_poll:
+                log.info(f"ByteDaily active poll cache warmed: Active poll #{active_poll['id']} found.")
+            else:
+                log.info("ByteDaily active poll cache warmed: No currently open poll.")
+        except Exception as e:
+            log.warning(f"ByteDaily: Failed to warm up active poll cache: {e}")
+
+        # Start pool health monitor background worker
+        start_pool_monitor()
+
+        # ── 8. Slash command sync (AFTER all extensions) ──
         try:
             if GUILD_ID:
                 guild_obj = discord.Object(id=GUILD_ID)
@@ -71,13 +105,14 @@ class DeveloperBot(commands.Bot):
                 log.info(f"Synced {len(synced)} global slash commands.")
         except Exception as e:
             log.error(f"Error syncing slash commands: {e}")
+            capture_exception(e, tags={"component": "tree_sync"})
 
-        # ── 8. Legacy persistent views ──
+        # ── 9. Legacy persistent views ──
         from legacy.views.exam_views import ExamPanelLaunchView
         self.add_view(ExamPanelLaunchView(self))
         log.info("Registered Persistent ExamPanelLaunchView.")
 
-        # ── 9. ByteDaily persistent views ──
+        # ── 10. ByteDaily persistent views ──
         log.info("ByteDaily persistent views: DynamicItems registered in ByteDailyCog.cog_load().")
 
     async def _render_keepalive_loop(self) -> None:
@@ -114,28 +149,61 @@ class DeveloperBot(commands.Bot):
             return
 
         await asyncio.sleep(10)
+        from core.http_client import get_http_session
         while not self.is_closed():
             try:
-                timeout = aiohttp.ClientTimeout(total=10)
-                async with aiohttp.ClientSession(timeout=timeout) as session:
-                    async with session.get(url) as resp:
-                        log.info(f"Keepalive ping {url} → HTTP {resp.status}")
+                session = await get_http_session()
+                async with session.get(url, timeout=aiohttp.ClientTimeout(total=10)) as resp:
+                    log.info(f"Keepalive ping {url} → HTTP {resp.status}")
             except Exception as e:
                 log.warning(f"Keepalive ping failed ({url}): {e}")
             await asyncio.sleep(max(60, interval))
 
     async def close(self):
+        log.info("Initiating graceful bot shutdown sequence...")
         if self._keepalive_task and not self._keepalive_task.done():
             self._keepalive_task.cancel()
         if self.api_server:
             await self.api_server.stop()
+
+        # Persist / clean up active exam sessions
+        try:
+            from legacy.core.state import active_exams
+            if active_exams:
+                log.warning(f"Shutdown: Saving/cleaning up {len(active_exams)} active exam session(s)...")
+                for u_id, exam_info in list(active_exams.items()):
+                    task = exam_info.get("task")
+                    if task and not task.done():
+                        task.cancel()
+                    try:
+                        await db.record_fail(u_id, exam_info.get("role_key", "unknown"))
+                    except Exception:
+                        pass
+                active_exams.clear()
+        except Exception as e:
+            log.warning(f"Shutdown: Error cleaning up active exams: {e}")
+
+        # Close persistent global HTTP session
+        try:
+            from core.http_client import close_http_session
+            await close_http_session()
+        except Exception as e:
+            log.warning(f"Error closing HTTP session: {e}")
+
+        # Close database connection pools
         try:
             from features.bytedaily.database.client import bd_db
             await bd_db.close()
         except Exception:
             pass
         await db.close()
+        await db_pool_release()
+
+        # Flush pending Sentry events before exit
+        sentry_flush(timeout=2.0)
+
         await super().close()
+        log.info("Bot shutdown completed cleanly.")
 
 
 bot = DeveloperBot()
@@ -148,15 +216,26 @@ async def on_ready():
 @bot.event
 async def on_command_error(ctx, error):
     if isinstance(error, commands.MissingPermissions):
-        await ctx.send("❌ ليس لديك الصلاحيات الكافية لتنفيذ هذا الأمر.")
+        await ctx.send("❌ ليس لديك الصلاحيات الكافية لتنفيذ هذا الأمر. | You do not have sufficient permissions to execute this command.")
+    elif isinstance(error, commands.CommandNotFound):
+        pass
     else:
         log.warning(f"Command error: {error}")
+        capture_exception(
+            error,
+            tags={
+                "command": str(ctx.command),
+                "author_id": ctx.author.id,
+                "guild_id": ctx.guild.id if ctx.guild else "DM",
+            },
+        )
 
 @bot.tree.error
 async def on_app_command_error(interaction: discord.Interaction, error: Exception):
     log.error(f"App command error: {error}", exc_info=True)
+    capture_interaction_error(interaction, error)
     try:
-        msg = "⚠️ حدث خطأ أثناء تنفيذ الأمر. حاول مرة أخرى."
+        msg = "⚠️ حدث خطأ أثناء تنفيذ الأمر. حاول مرة أخرى. | An error occurred while executing the command. Please try again."
         if interaction.response.is_done():
             await interaction.followup.send(msg, ephemeral=True)
         else:
@@ -165,9 +244,28 @@ async def on_app_command_error(interaction: discord.Interaction, error: Exceptio
         pass
 
 if __name__ == "__main__":
+    # Initialize Sentry error observability
+    init_sentry()
+
     if not TOKEN:
         log.critical("Missing DISCORD_TOKEN in environment or .env file!")
         raise RuntimeError("DISCORD_TOKEN is missing. Please set it in .env file.")
+
+    def _setup_signal_handlers():
+        """Setup cross-platform signal handling for graceful shutdown."""
+        def _handle_signal(sig, frame):
+            log.info(f"Received shutdown signal {sig}, terminating gracefully...")
+            if bot.loop and bot.loop.is_running():
+                asyncio.run_coroutine_threadsafe(bot.close(), bot.loop)
+
+        try:
+            signal.signal(signal.SIGINT, _handle_signal)
+            if hasattr(signal, "SIGTERM"):
+                signal.signal(signal.SIGTERM, _handle_signal)
+        except Exception as e:
+            log.warning(f"Could not bind signal handlers: {e}")
+
+    _setup_signal_handlers()
 
     async def _start_with_rate_limit_retry() -> None:
         """
@@ -206,5 +304,13 @@ if __name__ == "__main__":
                 except Exception:
                     pass
                 await asyncio.sleep(delay)
+            except (KeyboardInterrupt, SystemExit):
+                log.info("Shutdown interrupted by user/system.")
+                if not bot.is_closed():
+                    await bot.close()
+                break
 
-    asyncio.run(_start_with_rate_limit_retry())
+    try:
+        asyncio.run(_start_with_rate_limit_retry())
+    except (KeyboardInterrupt, SystemExit):
+        log.info("Bot execution finished.")

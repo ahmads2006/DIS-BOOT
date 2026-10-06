@@ -266,3 +266,10 @@ You have two options:
 [2026-10-04 17:48:40] [INFO] [discord_bot]: ByteDaily: DB pool closed.
 [2026-10-04 17:51:56] [INFO] [discord_bot]: ByteDaily: DB pool initialized.
 [2026-10-04 17:51:57] [INFO] [discord_bot]: ByteDaily: DB pool closed.
+[2026-10-06 17:50:50] [INFO] [discord_bot]: ByteDaily: User 1 answer recorded for poll #10 (correct=True, streak=1, highest=1, bonus=0, milestone=None).
+[2026-10-06 17:50:50] [INFO] [discord_bot]: ByteDaily: User 1 answer recorded for poll #11 (correct=True, streak=5, highest=5, bonus=10, milestone=5).
+[2026-10-06 17:50:50] [INFO] [discord_bot]: ByteDaily: User 1 answer recorded for poll #20 (correct=True, streak=10, highest=10, bonus=30, milestone=10).
+[2026-10-06 17:50:50] [INFO] [discord_bot]: ByteDaily: User 1 answer recorded for poll #15 (correct=True, streak=1, highest=5, bonus=0, milestone=None).
+[2026-10-06 17:50:50] [INFO] [discord_bot]: ByteDaily: User 1 answer recorded for poll #15 (correct=False, streak=0, highest=8, bonus=0, milestone=None).
+2026-10-06T17:15:01.706521Z [info     ] SENTRY_DSN is not configured — running with local structured logging only. [discord_bot]
+2026-10-06T17:15:10.325504Z [info     ] Sentry SDK initialized successfully [discord_bot] environment=development release=devquest-bot@1.0.0
