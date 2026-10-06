@@ -33,7 +33,7 @@ from discord.ext import tasks
 from bridge.legacy_adapter import log
 from core.sentry import capture_exception
 from .constants import ANSWER_WINDOW_SECONDS, BD_CHANNEL_ID
-from .database.repositories import poll_repo, settings_repo, answer_repo
+from .database.repositories import poll_repo, settings_repo, answer_repo, user_repo
 from .embeds import (
     build_challenge_embed,
     build_results_embed,
@@ -536,6 +536,10 @@ class ByteDailyScheduler:
                 correct_count = sum(1 for a in user_answers if a.get("is_correct"))
                 total_questions = len(user_answers)
                 primary = user_answers[0]
+
+                user_profile = await user_repo.get_by_id(user_id)
+                is_en = user_profile.get("preferred_language") == "en" if user_profile else False
+
                 embed = build_personal_result_dm_embed(
                     poll_id=poll_id,
                     question=question,
@@ -543,6 +547,7 @@ class ByteDailyScheduler:
                     is_correct=bool(primary.get("is_correct")),
                     correct_count=correct_count,
                     total_questions=total_questions,
+                    is_en=is_en,
                     footer_icon_url=footer_icon_url,
                 )
 

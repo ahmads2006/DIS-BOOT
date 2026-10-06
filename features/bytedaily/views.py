@@ -264,72 +264,38 @@ class DynamicAnswerButton(
                 is_correct=is_correct,
             )
 
-            # Get community vote distribution for anti-bandwagon post-answer display
-            dist = await answer_repo.get_choice_distribution(self.poll_id)
-            counts = dist.get("counts", {})
-            percentages = dist.get("percentages", {})
-            total_votes = dist.get("total", 0)
-
-            # Build language-matched ephemeral result embed with streak, explanation, and vote distribution
-            color = EMBED_COLOR_CORRECT if is_correct else EMBED_COLOR_WRONG
-            current_streak = streak_info.get("current_streak", 0)
+            # Acknowledge submission without revealing the correct answer or explanation
+            # Results, explanation, and score breakdown will be sent in DMs upon challenge close
+            footer_icon = interaction.client.user.display_avatar.url if interaction.client.user else None
 
             if is_en:
-                title = "🎉 Correct Answer! (+10 pts)" if is_correct else "❌ Incorrect Answer (+0 pts)"
-                desc = (
-                    f"You selected **Option [{self.choice.upper()}]** — Correct!\n"
-                    f"Points have been recorded to your leaderboard score."
-                    if is_correct
-                    else f"You selected **Option [{self.choice.upper()}]** — Incorrect.\n"
-                    f"The correct answer is **Option [{question['correct_answer']}]**."
+                embed = discord.Embed(
+                    title="✅ Answer Submitted!",
+                    description=(
+                        f"You selected **Option [{self.choice.upper()}]**.\n\n"
+                        "🔒 **Your answer has been locked in.**\n"
+                        "📬 The correct answer, explanation, and your result report will be sent to your **Direct Messages (DMs)** once this challenge closes!"
+                    ),
+                    color=discord.Color.blue(),
                 )
-                embed = discord.Embed(title=title, description=desc, color=color)
-
-                streak_line = f"🔥 **Current Streak:** {current_streak} Day{'s' if current_streak != 1 else ''}!"
-                if streak_info.get("milestone"):
-                    streak_line += f" 🎁 **Milestone Bonus:** `+{streak_info['bonus_points']} pts`!"
-                embed.add_field(name="⚡ Streak", value=streak_line, inline=True)
-
-                explanation = str(question.get("explanation_en") or question.get("explanation") or "").strip()
-                if explanation:
-                    embed.add_field(name="📖 Explanation", value=explanation, inline=False)
-
-                breakdown_text = (
-                    f"🇦 **[A]**: {counts.get('A', 0)} ({percentages.get('A', 0)}%)\n"
-                    f"🇧 **[B]**: {counts.get('B', 0)} ({percentages.get('B', 0)}%)\n"
-                    f"🇨 **[C]**: {counts.get('C', 0)} ({percentages.get('C', 0)}%)\n"
-                    f"🇩 **[D]**: {counts.get('D', 0)} ({percentages.get('D', 0)}%)\n"
-                    f"👥 **Total Answers:** {total_votes}"
+                embed.set_footer(
+                    text="DevQuest Engine • Results will be delivered via DM upon challenge completion.",
+                    icon_url=footer_icon,
                 )
-                embed.add_field(name="📊 Community Votes", value=breakdown_text, inline=False)
             else:
-                title = "🎉 إجابة صحيحة! (+10 نقاط)" if is_correct else "❌ إجابة خاطئة (+0 نقطة)"
-                desc = (
-                    f"اخترت **الخيار [{self.choice.upper()}]** — إجابة صحيحة وممتازة!\n"
-                    f"أُضيفت النقاط إلى رصيدك وترتيبك في السيرفر."
-                    if is_correct
-                    else f"اخترت **الخيار [{self.choice.upper()}]** — إجابة غير صحيحة.\n"
-                    f"الإجابة الصحيحة هي **الخيار [{question['correct_answer']}]**."
+                embed = discord.Embed(
+                    title="✅ تم تسجيل إجابتك بنجاح!",
+                    description=(
+                        f"لقد اخترت **الخيار [{self.choice.upper()}]**.\n\n"
+                        "🔒 **تم قفل وحفظ إجابتك بنجاح.**\n"
+                        "📬 ستصلك الإجابة الصحيحة، الشرح، وتفاصيل نتيجتك في **الرسائل الخاصة (DM)** فور انتهاء وقت التحدي!"
+                    ),
+                    color=discord.Color.blue(),
                 )
-                embed = discord.Embed(title=title, description=desc, color=color)
-
-                streak_line = f"🔥 **السلسلة المتواصلة:** {current_streak} {'يوم' if current_streak == 1 else 'أيام'}!"
-                if streak_info.get("milestone"):
-                    streak_line += f" 🎁 **مكافأة إنجاز:** `+{streak_info['bonus_points']} نقطة`!"
-                embed.add_field(name="⚡ السلسلة", value=streak_line, inline=True)
-
-                explanation = str(question.get("explanation") or question.get("explanation_ar") or question.get("explanation_en") or "").strip()
-                if explanation:
-                    embed.add_field(name="📖 الشرح والتوضيح", value=explanation, inline=False)
-
-                breakdown_text = (
-                    f"🇦 **[A]**: {counts.get('A', 0)} ({percentages.get('A', 0)}%)\n"
-                    f"🇧 **[B]**: {counts.get('B', 0)} ({percentages.get('B', 0)}%)\n"
-                    f"🇨 **[C]**: {counts.get('C', 0)} ({percentages.get('C', 0)}%)\n"
-                    f"🇩 **[D]**: {counts.get('D', 0)} ({percentages.get('D', 0)}%)\n"
-                    f"👥 **إجمالي الإجابات:** {total_votes}"
+                embed.set_footer(
+                    text="DevQuest Engine • ستصلك النتيجة والشرح في الخاص (DM) بعد انتهاء التحدي.",
+                    icon_url=footer_icon,
                 )
-                embed.add_field(name="📊 توزيع تصويت الأعضاء", value=breakdown_text, inline=False)
 
             # Reply to the user ASAP — before any embed refresh work
             await interaction.followup.send(embed=embed, ephemeral=True)

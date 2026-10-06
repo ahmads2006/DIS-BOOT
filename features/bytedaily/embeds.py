@@ -220,12 +220,37 @@ _CHOICE_KEYS = {
     "D": "choice_d",
 }
 
+_CHOICE_KEYS_EN = {
+    "A": "choice_a_en",
+    "B": "choice_b_en",
+    "C": "choice_c_en",
+    "D": "choice_d_en",
+}
 
-def _choice_label(question: Dict[str, Any], letter: str) -> str:
-    """Format `A — option text` for a choice letter."""
-    key = _CHOICE_KEYS.get(str(letter).upper())
-    text = (question.get(key) if key else None) or ""
+
+def _choice_label(question: Dict[str, Any], letter: str, is_en: bool = False) -> str:
+    """Format `A — option text` for a choice letter in target language."""
     letter = str(letter).upper()
+    if is_en:
+        key = _CHOICE_KEYS_EN.get(letter)
+        text = (question.get(key) if key else None) or ""
+        if not text:
+            # Fallback to options_en dict if present
+            opts = question.get("options_en")
+            if isinstance(opts, dict):
+                text = opts.get(letter) or ""
+            elif isinstance(opts, str):
+                try:
+                    text = json.loads(opts).get(letter, "")
+                except Exception:
+                    pass
+        if not text:
+            key_ar = _CHOICE_KEYS.get(letter)
+            text = (question.get(key_ar) if key_ar else None) or ""
+    else:
+        key = _CHOICE_KEYS.get(letter)
+        text = (question.get(key) if key else None) or ""
+
     return f"`{letter}` — {text}".strip(" —") if text else f"`{letter}`"
 
 
@@ -237,57 +262,98 @@ def build_personal_result_dm_embed(
     is_correct: bool,
     correct_count: int = 0,
     total_questions: int = 1,
+    is_en: bool = False,
     footer_icon_url: Optional[str] = None,
 ) -> discord.Embed:
     """
     Personal DM report sent after a poll closes.
-    Supports a single-question poll today; score fields stay generic for future multi-Q sessions.
+    Supports English or Arabic localization based on user preference.
     """
     total = max(int(total_questions), 1)
     correct = int(correct_count)
     percent = round((correct / total) * 100) if total else 0
-    outcome = "🎉 إجابة صحيحة! / Correct Answer! (+10 pts)" if is_correct else "❌ إجابة خاطئة / Incorrect Answer (+0 pts)"
     color = EMBED_COLOR_CORRECT if is_correct else EMBED_COLOR_WRONG
 
-    q_text = str(question.get("question_text") or "").strip()
-    explanation = str(question.get("explanation") or "—").strip()
     correct_letter = str(question.get("correct_answer") or "?").upper()
     chosen_letter = str(chosen_answer or "?").upper()
 
-    embed = discord.Embed(
-        title=f"📬 تقرير نتيجتك | ByteDaily #{poll_id} Result Report",
-        description=(
-            f"{outcome}\n\n"
-            f"**📊 النتيجة النهائية / Final Score:** `{correct}/{total}` "
-            f"({percent}%)"
-        ),
-        color=color,
-        timestamp=datetime.now(timezone.utc),
-    )
-    embed.add_field(
-        name="❓ السؤال / Question",
-        value=f"> {q_text}" if q_text else "—",
-        inline=False,
-    )
-    embed.add_field(
-        name="📝 إجابتك / Your Answer",
-        value=_choice_label(question, chosen_letter),
-        inline=True,
-    )
-    embed.add_field(
-        name="✅ الإجابة الصحيحة / Correct Answer",
-        value=_choice_label(question, correct_letter),
-        inline=True,
-    )
-    embed.add_field(
-        name="📖 الشرح / Explanation",
-        value=explanation,
-        inline=False,
-    )
-    embed.set_footer(
-        text="DevQuest Engine • أُرسل تلقائياً بعد إغلاق التحدي | Sent automatically after challenge close",
-        icon_url=footer_icon_url,
-    )
+    if is_en:
+        outcome = "🎉 Correct Answer! (+10 pts)" if is_correct else "❌ Incorrect Answer (+0 pts)"
+        q_text = str(question.get("question_en") or question.get("question_text") or "").strip()
+        explanation = str(question.get("explanation_en") or question.get("explanation") or "—").strip()
+
+        embed = discord.Embed(
+            title=f"📬 Your Result Report | ByteDaily Challenge #{poll_id}",
+            description=(
+                f"### {outcome}\n\n"
+                f"**📊 Final Score:** `{correct}/{total}` ({percent}%)"
+            ),
+            color=color,
+            timestamp=datetime.now(timezone.utc),
+        )
+        embed.add_field(
+            name="❓ Question",
+            value=f"> {q_text}" if q_text else "—",
+            inline=False,
+        )
+        embed.add_field(
+            name="📝 Your Choice",
+            value=_choice_label(question, chosen_letter, is_en=True),
+            inline=True,
+        )
+        embed.add_field(
+            name="✅ Correct Answer",
+            value=_choice_label(question, correct_letter, is_en=True),
+            inline=True,
+        )
+        embed.add_field(
+            name="📖 Explanation",
+            value=explanation,
+            inline=False,
+        )
+        embed.set_footer(
+            text="DevQuest Engine • Sent automatically after challenge close",
+            icon_url=footer_icon_url,
+        )
+    else:
+        outcome = "🎉 إجابة صحيحة! (+10 نقاط)" if is_correct else "❌ إجابة خاطئة (+0 نقطة)"
+        q_text = str(question.get("question_text") or "").strip()
+        explanation = str(question.get("explanation") or question.get("explanation_ar") or "—").strip()
+
+        embed = discord.Embed(
+            title=f"📬 تقرير نتيجتك | تحدي ByteDaily #{poll_id}",
+            description=(
+                f"### {outcome}\n\n"
+                f"**📊 النتيجة:** `{correct}/{total}` ({percent}%)"
+            ),
+            color=color,
+            timestamp=datetime.now(timezone.utc),
+        )
+        embed.add_field(
+            name="❓ السؤال",
+            value=f"> {q_text}" if q_text else "—",
+            inline=False,
+        )
+        embed.add_field(
+            name="📝 اختيارك",
+            value=_choice_label(question, chosen_letter, is_en=False),
+            inline=True,
+        )
+        embed.add_field(
+            name="✅ الإجابة الصحيحة",
+            value=_choice_label(question, correct_letter, is_en=False),
+            inline=True,
+        )
+        embed.add_field(
+            name="📖 الشرح والتوضيح",
+            value=explanation,
+            inline=False,
+        )
+        embed.set_footer(
+            text="DevQuest Engine • أُرسل تلقائياً بعد إغلاق التحدي اليومي",
+            icon_url=footer_icon_url,
+        )
+
     return embed
 
 
