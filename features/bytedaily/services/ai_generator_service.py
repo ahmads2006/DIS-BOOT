@@ -163,7 +163,11 @@ async def _fetch_gemini_questions(count: int = 5) -> int:
         explanation_en = str(q.get("explanation_en", "")).strip() or None
         category = str(q.get("category", "")).strip()
 
+        # Require both Arabic and English fields to be complete
         if not (question_ar and choice_a and choice_b and choice_c and choice_d):
+            continue
+
+        if not (question_en and choice_a_en and choice_b_en and choice_c_en and choice_d_en):
             continue
 
         if correct_answer not in ("A", "B", "C", "D"):

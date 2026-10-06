@@ -466,7 +466,8 @@ class DynamicTranslateButton(
                 footer_icon_url=footer_icon,
             )
 
-            await interaction.followup.send(embed=embed, ephemeral=True)
+            english_view = ByteDailyEnglishAnswerView(poll_id=self.poll_id)
+            await interaction.followup.send(embed=embed, view=english_view, ephemeral=True)
         except Exception as e:
             log.error(
                 f"ByteDaily: Translate callback error poll=#{self.poll_id} "
@@ -673,6 +674,20 @@ class ByteDailyAnswerView(View):
         self.add_item(
             DynamicTranslateButton(poll_id=poll_id, disabled=disabled, row=1)
         )
+
+
+class ByteDailyEnglishAnswerView(View):
+    """View container containing the 4 choice buttons for answering from the English view."""
+
+    def __init__(self, poll_id: int, disabled: bool = False) -> None:
+        super().__init__(timeout=None)
+        self.poll_id = poll_id
+        for choice in ["A", "B", "C", "D"]:
+            self.add_item(
+                DynamicAnswerButton(
+                    poll_id=poll_id, choice=choice, disabled=disabled, row=0
+                )
+            )
 
 
 class ByteDailyResultView(View):

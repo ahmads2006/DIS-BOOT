@@ -40,7 +40,7 @@ def build_english_challenge_embed(
         closes_at = closes_at.replace(tzinfo=timezone.utc)
     closes_unix = int(closes_at.timestamp())
 
-    q_text_en = str(question.get("question_en") or "").strip()
+    q_text_en = str(question.get("question_en") or question.get("question_text") or "").strip()
 
     # Extract English options
     opts = question.get("options_en")
@@ -105,7 +105,7 @@ def build_english_challenge_embed(
     )
 
     embed.set_footer(
-        text="DevQuest Engine • Select your answer on the main challenge message!",
+        text="DevQuest Engine • Answer & earn points to rank up!",
         icon_url=footer_icon_url,
     )
     return embed

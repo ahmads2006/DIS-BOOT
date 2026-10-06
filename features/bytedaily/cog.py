@@ -500,9 +500,25 @@ class ByteDailyCog(commands.Cog, name="ByteDaily"):
 
     @app_commands.command(
         name="bytedaily-add-question",
-        description="[أدمن] إضافة سؤال جديد يدوياً لبنك الأسئلة / [Admin] Add new question to bank",
+        description="[أدمن] إضافة سؤال جديد يدوياً باللغتين لبنك الأسئلة / [Admin] Add bilingual question to bank",
     )
     @app_commands.default_permissions(administrator=True)
+    @app_commands.describe(
+        question_text="نص السؤال بالعربية (مطلوب)",
+        choice_a="الخيار A بالعربية (مطلوب)",
+        choice_b="الخيار B بالعربية (مطلوب)",
+        choice_c="الخيار C بالعربية (مطلوب)",
+        choice_d="الخيار D بالعربية (مطلوب)",
+        correct_choice="حرف الإجابة الصحيحة",
+        question_en="نص السؤال بالإنجليزية (مطلوب / English Question)",
+        choice_a_en="الخيار A بالإنجليزية (مطلوب / English Choice A)",
+        choice_b_en="الخيار B بالإنجليزية (مطلوب / English Choice B)",
+        choice_c_en="الخيار C بالإنجليزية (مطلوب / English Choice C)",
+        choice_d_en="الخيار D بالإنجليزية (مطلوب / English Choice D)",
+        explanation="شرح الجواب بالعربية (اختياري)",
+        explanation_en="شرح الجواب بالإنجليزية (اختياري / English Explanation)",
+        category="التصنيف (اختياري مثل: Python, SQL, Docker)",
+    )
     @app_commands.choices(
         correct_choice=[
             app_commands.Choice(name="A", value="A"),
@@ -520,16 +536,16 @@ class ByteDailyCog(commands.Cog, name="ByteDaily"):
         choice_c: str,
         choice_d: str,
         correct_choice: app_commands.Choice[str],
+        question_en: str,
+        choice_a_en: str,
+        choice_b_en: str,
+        choice_c_en: str,
+        choice_d_en: str,
         explanation: str = "",
+        explanation_en: str = "",
         category: str = "",
-        question_en: Optional[str] = None,
-        choice_a_en: Optional[str] = None,
-        choice_b_en: Optional[str] = None,
-        choice_c_en: Optional[str] = None,
-        choice_d_en: Optional[str] = None,
-        explanation_en: Optional[str] = None,
     ) -> None:
-        """Admin command: Add question to bank."""
+        """Admin command: Add question to bank with mandatory dual-language fields."""
         await interaction.response.defer(ephemeral=True)
 
         if not interaction.user.guild_permissions.administrator:
@@ -542,16 +558,38 @@ class ByteDailyCog(commands.Cog, name="ByteDaily"):
             )
             return
 
+        # Validation: Ensure non-empty Arabic fields
+        if not (question_text.strip() and choice_a.strip() and choice_b.strip() and choice_c.strip() and choice_d.strip()):
+            await interaction.followup.send(
+                embed=make_error_embed(
+                    "بيانات غير مكتملة • Missing Arabic Fields",
+                    "يجب إدخال نص السؤال وجميع الخيارات الأربعة (A, B, C, D) باللغة العربية.\n"
+                    "Arabic question and all 4 choices must not be empty.",
+                ),
+                ephemeral=True,
+            )
+            return
+
+        # Validation: Ensure non-empty English fields
+        if not (question_en.strip() and choice_a_en.strip() and choice_b_en.strip() and choice_c_en.strip() and choice_d_en.strip()):
+            await interaction.followup.send(
+                embed=make_error_embed(
+                    "بيانات غير مكتملة • Missing English Fields",
+                    "يجب إدخال نص السؤال وجميع الخيارات الأربعة (A, B, C, D) باللغة الإنجليزية.\n"
+                    "English question and all 4 choices must not be empty.",
+                ),
+                ephemeral=True,
+            )
+            return
+
         try:
             tags = [category.strip()] if category and category.strip() else []
-            options_en = None
-            if choice_a_en or choice_b_en or choice_c_en or choice_d_en:
-                options_en = {
-                    "A": (choice_a_en or "").strip(),
-                    "B": (choice_b_en or "").strip(),
-                    "C": (choice_c_en or "").strip(),
-                    "D": (choice_d_en or "").strip(),
-                }
+            options_en = {
+                "A": choice_a_en.strip(),
+                "B": choice_b_en.strip(),
+                "C": choice_c_en.strip(),
+                "D": choice_d_en.strip(),
+            }
 
             new_id = await question_repo.insert(
                 question_text=question_text.strip(),
@@ -563,25 +601,24 @@ class ByteDailyCog(commands.Cog, name="ByteDaily"):
                 explanation=explanation.strip(),
                 difficulty=1,
                 tags=tags,
-                question_en=question_en.strip() if question_en else None,
+                question_en=question_en.strip(),
                 options_en=options_en,
-                choice_a_en=choice_a_en.strip() if choice_a_en else None,
-                choice_b_en=choice_b_en.strip() if choice_b_en else None,
-                choice_c_en=choice_c_en.strip() if choice_c_en else None,
-                choice_d_en=choice_d_en.strip() if choice_d_en else None,
-                explanation_en=explanation_en.strip() if explanation_en else None,
+                choice_a_en=choice_a_en.strip(),
+                choice_b_en=choice_b_en.strip(),
+                choice_c_en=choice_c_en.strip(),
+                choice_d_en=choice_d_en.strip(),
+                explanation_en=explanation_en.strip() if explanation_en.strip() else None,
             )
             embed = make_success_embed(
-                "تمت إضافة السؤال • Question Added",
-                f"تمت إضافة السؤال **#{new_id}** بنجاح إلى `bd_questions`!\n"
-                f"Successfully added question **#{new_id}** to `bd_questions`!",
+                "تمت إضافة السؤال الثنائي • Bilingual Question Added",
+                f"تمت إضافة السؤال **#{new_id}** بنجاح إلى `bd_questions` باللغتين العربية والإنجليزية!\n"
+                f"Successfully added bilingual question **#{new_id}** to `bd_questions`!",
             )
-            embed.add_field(name="السؤال • Question (AR)", value=question_text, inline=False)
-            if question_en:
-                embed.add_field(name="السؤال • Question (EN)", value=question_en, inline=False)
+            embed.add_field(name="السؤال • Question (AR)", value=question_text.strip(), inline=False)
+            embed.add_field(name="السؤال • Question (EN)", value=question_en.strip(), inline=False)
             embed.add_field(name="الإجابة الصحيحة • Correct Answer", value=f"Option [{correct_choice.value}]", inline=True)
             if category:
-                embed.add_field(name="التصنيف • Category", value=category, inline=True)
+                embed.add_field(name="التصنيف • Category", value=category.strip(), inline=True)
             await interaction.followup.send(embed=embed, ephemeral=True)
         except Exception as e:
             log.error(f"ByteDaily: Error adding question: {e}", exc_info=True)
