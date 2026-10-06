@@ -193,15 +193,23 @@ def build_results_embed(
     footer_icon_url: Optional[str] = None,
 ) -> discord.Embed:
     """Build the previous-poll results embed shown in the rolling window."""
+    explanation_ar = str(question.get("explanation") or question.get("explanation_ar") or "").strip()
+    explanation_en = str(question.get("explanation_en") or "").strip()
+
+    if explanation_ar and explanation_en and explanation_ar != explanation_en:
+        explanation_text = f"🇸🇦 {explanation_ar}\n\n🇬🇧 {explanation_en}"
+    else:
+        explanation_text = explanation_ar or explanation_en or "—"
+
     embed = discord.Embed(
         title="📊 BYTE DAILY | نتائج التحدي • Challenge Results",
         description=(
             f"أُغلق التصويت على تحدي **#{poll_id}**! • Voting closed for Challenge **#{poll_id}**!\n\n"
-            f"**✅ الإجابة الصحيحة / Correct Answer:** `{question.get('correct_answer', '?')}`\n\n"
-            f"**📖 الشرح / Explanation:**\n> {question.get('explanation') or '—'}\n\n"
-            f"👥 **المشاركون / Participants:** {stats.get('total', 0)}\n"
-            f"✅ **إجابات صحيحة / Correct:** {stats.get('correct', 0)} ({stats.get('percent_correct', 0)}%)\n"
-            f"❌ **إجابات خاطئة / Incorrect:** {stats.get('wrong', 0)}"
+            f"**✅ الإجابة الصحيحة • Correct Answer:** Option `{question.get('correct_answer', '?')}`\n\n"
+            f"**📖 الشرح والتوضيح • Explanation:**\n> {explanation_text}\n\n"
+            f"👥 **المشاركون • Participants:** {stats.get('total', 0)}\n"
+            f"✅ **إجابات صحيحة • Correct:** {stats.get('correct', 0)} ({stats.get('percent_correct', 0)}%)\n"
+            f"❌ **إجابات خاطئة • Incorrect:** {stats.get('wrong', 0)}"
         ),
         color=EMBED_COLOR_STATS,
         timestamp=datetime.now(timezone.utc),
@@ -267,7 +275,7 @@ def build_personal_result_dm_embed(
 ) -> discord.Embed:
     """
     Personal DM report sent after a poll closes.
-    Supports English or Arabic localization based on user preference.
+    Presents comprehensive bilingual result details.
     """
     total = max(int(total_questions), 1)
     correct = int(correct_count)
@@ -277,82 +285,75 @@ def build_personal_result_dm_embed(
     correct_letter = str(question.get("correct_answer") or "?").upper()
     chosen_letter = str(chosen_answer or "?").upper()
 
-    if is_en:
-        outcome = "🎉 Correct Answer! (+10 pts)" if is_correct else "❌ Incorrect Answer (+0 pts)"
-        q_text = str(question.get("question_en") or question.get("question_text") or "").strip()
-        explanation = str(question.get("explanation_en") or question.get("explanation") or "—").strip()
+    outcome_ar = "🎉 إجابة صحيحة! (+10 نقاط)" if is_correct else "❌ إجابة خاطئة (+0 نقطة)"
+    outcome_en = "🎉 Correct Answer! (+10 pts)" if is_correct else "❌ Incorrect Answer (+0 pts)"
 
-        embed = discord.Embed(
-            title=f"📬 Your Result Report | ByteDaily Challenge #{poll_id}",
-            description=(
-                f"### {outcome}\n\n"
-                f"**📊 Final Score:** `{correct}/{total}` ({percent}%)"
-            ),
-            color=color,
-            timestamp=datetime.now(timezone.utc),
-        )
-        embed.add_field(
-            name="❓ Question",
-            value=f"> {q_text}" if q_text else "—",
-            inline=False,
-        )
-        embed.add_field(
-            name="📝 Your Choice",
-            value=_choice_label(question, chosen_letter, is_en=True),
-            inline=True,
-        )
-        embed.add_field(
-            name="✅ Correct Answer",
-            value=_choice_label(question, correct_letter, is_en=True),
-            inline=True,
-        )
-        embed.add_field(
-            name="📖 Explanation",
-            value=explanation,
-            inline=False,
-        )
-        embed.set_footer(
-            text="DevQuest Engine • Sent automatically after challenge close",
-            icon_url=footer_icon_url,
-        )
+    q_text_ar = str(question.get("question_text") or "").strip()
+    q_text_en = str(question.get("question_en") or "").strip()
+
+    explanation_ar = str(question.get("explanation") or question.get("explanation_ar") or "").strip()
+    explanation_en = str(question.get("explanation_en") or "").strip()
+
+    chosen_label_ar = _choice_label(question, chosen_letter, is_en=False)
+    chosen_label_en = _choice_label(question, chosen_letter, is_en=True)
+
+    correct_label_ar = _choice_label(question, correct_letter, is_en=False)
+    correct_label_en = _choice_label(question, correct_letter, is_en=True)
+
+    embed = discord.Embed(
+        title=f"📬 تقرير نتيجتك • Result Report | ByteDaily #{poll_id}",
+        description=(
+            f"### {outcome_ar}\n"
+            f"### {outcome_en}\n\n"
+            f"**📊 النتيجة النهائية • Final Score:** `{correct}/{total}` ({percent}%)"
+        ),
+        color=color,
+        timestamp=datetime.now(timezone.utc),
+    )
+
+    if q_text_ar and q_text_en and q_text_ar != q_text_en:
+        q_value = f"🇸🇦 {q_text_ar}\n\n🇬🇧 {q_text_en}"
     else:
-        outcome = "🎉 إجابة صحيحة! (+10 نقاط)" if is_correct else "❌ إجابة خاطئة (+0 نقطة)"
-        q_text = str(question.get("question_text") or "").strip()
-        explanation = str(question.get("explanation") or question.get("explanation_ar") or "—").strip()
+        q_value = q_text_ar or q_text_en or "—"
 
-        embed = discord.Embed(
-            title=f"📬 تقرير نتيجتك | تحدي ByteDaily #{poll_id}",
-            description=(
-                f"### {outcome}\n\n"
-                f"**📊 النتيجة:** `{correct}/{total}` ({percent}%)"
-            ),
-            color=color,
-            timestamp=datetime.now(timezone.utc),
-        )
-        embed.add_field(
-            name="❓ السؤال",
-            value=f"> {q_text}" if q_text else "—",
-            inline=False,
-        )
-        embed.add_field(
-            name="📝 اختيارك",
-            value=_choice_label(question, chosen_letter, is_en=False),
-            inline=True,
-        )
-        embed.add_field(
-            name="✅ الإجابة الصحيحة",
-            value=_choice_label(question, correct_letter, is_en=False),
-            inline=True,
-        )
-        embed.add_field(
-            name="📖 الشرح والتوضيح",
-            value=explanation,
-            inline=False,
-        )
-        embed.set_footer(
-            text="DevQuest Engine • أُرسل تلقائياً بعد إغلاق التحدي اليومي",
-            icon_url=footer_icon_url,
-        )
+    embed.add_field(
+        name="❓ السؤال • Question",
+        value=q_value,
+        inline=False,
+    )
+
+    if chosen_label_ar != chosen_label_en:
+        chosen_val = f"🇸🇦 {chosen_label_ar}\n🇬🇧 {chosen_label_en}"
+        correct_val = f"🇸🇦 {correct_label_ar}\n🇬🇧 {correct_label_en}"
+    else:
+        chosen_val = chosen_label_ar
+        correct_val = correct_label_ar
+
+    embed.add_field(
+        name="📝 اختيارك • Your Choice",
+        value=chosen_val,
+        inline=True,
+    )
+    embed.add_field(
+        name="✅ الإجابة الصحيحة • Correct Answer",
+        value=correct_val,
+        inline=True,
+    )
+
+    if explanation_ar and explanation_en and explanation_ar != explanation_en:
+        exp_val = f"🇸🇦 **(AR):** {explanation_ar}\n\n🇬🇧 **(EN):** {explanation_en}"
+    else:
+        exp_val = explanation_ar or explanation_en or "—"
+
+    embed.add_field(
+        name="📖 الشرح والتوضيح • Explanation",
+        value=exp_val,
+        inline=False,
+    )
+    embed.set_footer(
+        text="DevQuest Engine • أُرسل تلقائياً بعد إغلاق التحدي | Sent automatically after challenge close",
+        icon_url=footer_icon_url,
+    )
 
     return embed
 

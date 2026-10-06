@@ -212,32 +212,29 @@ class DynamicAnswerButton(
         try:
             poll = await poll_repo.get_by_id(self.poll_id)
             if not poll or poll.get("status") != "open":
-                msg_closed = (
-                    "⚠️ This challenge is already closed. Answers are no longer accepted."
-                    if is_en
-                    else "⚠️ تم إغلاق هذا التحدي بالفعل، لم يعد بالإمكان استقبال إجابات."
+                await interaction.followup.send(
+                    "⚠️ تم إغلاق هذا التحدي بالفعل، لم يعد بالإمكان استقبال إجابات.\n"
+                    "⚠️ This challenge is already closed. Answers are no longer accepted.",
+                    ephemeral=True,
                 )
-                await interaction.followup.send(msg_closed, ephemeral=True)
                 return
 
             already = await answer_repo.has_answered(self.poll_id, interaction.user.id)
             if already:
-                msg_already = (
-                    "⚠️ You have already submitted an answer for this challenge."
-                    if is_en
-                    else "⚠️ لقد قمت بالإجابة على هذا التحدي مسبقاً."
+                await interaction.followup.send(
+                    "⚠️ لقد قمت بالإجابة على هذا التحدي مسبقاً.\n"
+                    "⚠️ You have already submitted an answer for this challenge.",
+                    ephemeral=True,
                 )
-                await interaction.followup.send(msg_already, ephemeral=True)
                 return
 
             question = await question_repo.get_by_id(poll["question_id"])
             if not question:
-                msg_missing = (
-                    "⚠️ Question data could not be retrieved."
-                    if is_en
-                    else "⚠️ تعذر العثور على بيانات السؤال."
+                await interaction.followup.send(
+                    "⚠️ تعذر العثور على بيانات السؤال.\n"
+                    "⚠️ Question data could not be retrieved.",
+                    ephemeral=True,
                 )
-                await interaction.followup.send(msg_missing, ephemeral=True)
                 return
 
             is_correct = self.choice.upper() == str(question["correct_answer"]).upper()
@@ -249,12 +246,11 @@ class DynamicAnswerButton(
             )
 
             if not inserted:
-                msg_already = (
-                    "⚠️ You have already submitted an answer for this challenge."
-                    if is_en
-                    else "⚠️ لقد قمت بالإجابة على هذا التحدي مسبقاً."
+                await interaction.followup.send(
+                    "⚠️ لقد قمت بالإجابة على هذا التحدي مسبقاً.\n"
+                    "⚠️ You have already submitted an answer for this challenge.",
+                    ephemeral=True,
                 )
-                await interaction.followup.send(msg_already, ephemeral=True)
                 return
 
             # Record streak & milestone rewards in database
@@ -264,38 +260,24 @@ class DynamicAnswerButton(
                 is_correct=is_correct,
             )
 
-            # Acknowledge submission without revealing the correct answer or explanation
-            # Results, explanation, and score breakdown will be sent in DMs upon challenge close
+            # Acknowledge submission with clean bilingual embed without revealing the answer
             footer_icon = interaction.client.user.display_avatar.url if interaction.client.user else None
 
-            if is_en:
-                embed = discord.Embed(
-                    title="✅ Answer Submitted!",
-                    description=(
-                        f"You selected **Option [{self.choice.upper()}]**.\n\n"
-                        "🔒 **Your answer has been locked in.**\n"
-                        "📬 The correct answer, explanation, and your result report will be sent to your **Direct Messages (DMs)** once this challenge closes!"
-                    ),
-                    color=discord.Color.blue(),
-                )
-                embed.set_footer(
-                    text="DevQuest Engine • Results will be delivered via DM upon challenge completion.",
-                    icon_url=footer_icon,
-                )
-            else:
-                embed = discord.Embed(
-                    title="✅ تم تسجيل إجابتك بنجاح!",
-                    description=(
-                        f"لقد اخترت **الخيار [{self.choice.upper()}]**.\n\n"
-                        "🔒 **تم قفل وحفظ إجابتك بنجاح.**\n"
-                        "📬 ستصلك الإجابة الصحيحة، الشرح، وتفاصيل نتيجتك في **الرسائل الخاصة (DM)** فور انتهاء وقت التحدي!"
-                    ),
-                    color=discord.Color.blue(),
-                )
-                embed.set_footer(
-                    text="DevQuest Engine • ستصلك النتيجة والشرح في الخاص (DM) بعد انتهاء التحدي.",
-                    icon_url=footer_icon,
-                )
+            embed = discord.Embed(
+                title="✅ تم تسجيل إجابتك بنجاح! • Answer Submitted!",
+                description=(
+                    f"**الخيار المختار • Selected Choice:** `[{self.choice.upper()}]`\n\n"
+                    "🔒 **تم قفل وحفظ إجابتك بنجاح.**\n"
+                    "🔒 **Your answer has been securely recorded.**\n\n"
+                    "📬 ستصلك الإجابة الصحيحة، الشرح، وتفاصيل نتيجتك في **الرسائل الخاصة (DM)** فور انتهاء وقت التحدي!\n"
+                    "📬 The correct answer, explanation, and your personal result report will be delivered to your **Direct Messages (DMs)** when this challenge closes!"
+                ),
+                color=discord.Color.blue(),
+            )
+            embed.set_footer(
+                text="DevQuest Engine • ستصلك النتيجة في الخاص | Results via DM upon challenge close",
+                icon_url=footer_icon,
+            )
 
             # Reply to the user ASAP — before any embed refresh work
             await interaction.followup.send(embed=embed, ephemeral=True)
