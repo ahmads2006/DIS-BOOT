@@ -27,6 +27,8 @@ from .constants import BD_CHANNEL_ID, BD_LEADERBOARD_CHANNEL_ID
 from .database.client import bd_db
 from .database.repositories import question_repo, user_repo
 from .scheduler import ByteDailyScheduler
+from .embeds import build_developer_profile_embed
+from .views import ProfileInteractiveView
 from .services import poll_service, question_service, stats_service, ai_generator_service, leaderboard_service
 
 
@@ -786,91 +788,72 @@ class ByteDailyCog(commands.Cog, name="ByteDaily"):
             )
 
     @app_commands.command(
-        name="bytedaily-rank",
-        description="عرض إحصائياتك ورتبتك / View your personal ByteDaily rank and stats",
+        name="profile",
+        description="عرض الملف البرمجي الاحترافي والرتبة / View developer profile, tier, and badges",
     )
-    async def bytedaily_rank(self, interaction: discord.Interaction) -> None:
-        """Public command: Show the caller's personal ByteDaily stats card."""
+    @app_commands.describe(user="المطور المراد عرض ملفه (اختياري) / Target developer (optional)")
+    async def profile_cmd(
+        self,
+        interaction: discord.Interaction,
+        user: Optional[discord.Member] = None,
+    ) -> None:
+        """Show full luxury developer profile card with rank, streaks, accuracy, badges, and progress."""
         await interaction.response.defer(ephemeral=True)
+        target = user or interaction.user
+        target_id = target.id
 
-        user_id = interaction.user.id
         try:
-            stats = await user_repo.get_by_id(user_id)
-            if not stats:
+            detailed_stats = await user_repo.get_user_detailed_stats(target_id)
+            if not detailed_stats:
+                is_self = target_id == interaction.user.id
+                msg_ar = (
+                    "لم تشارك في أي تحدٍّ بعد!\nحل التحدي اليومي للبدء في تجميع النقاط والترتيب. 🚀"
+                    if is_self
+                    else f"المستخدم {target.mention} لم يشارك في أي تحدٍّ بعد! 🚀"
+                )
+                msg_en = (
+                    "You haven't participated in any challenges yet!\nSolve the daily challenge to start earning points. 🚀"
+                    if is_self
+                    else f"User {target.mention} hasn't participated in any challenges yet! 🚀"
+                )
                 await interaction.followup.send(
                     embed=make_info_embed(
-                        title="📊 بياناتك في ByteDaily | Your ByteDaily Profile",
-                        description=(
-                            "لم تشارك في أي تحدٍّ بعد!\n"
-                            "You haven't participated in any challenges yet!\n\n"
-                            "حل التحدي اليومي للبدء في تجميع النقاط والترتيب. 🚀\n"
-                            "Solve the daily challenge to start earning points and climb the ranks. 🚀"
-                        ),
+                        title="📊 الملف البرمجي | Developer Profile",
+                        description=f"{msg_ar}\n\n{msg_en}",
                     ),
                     ephemeral=True,
                 )
                 return
 
-            rank = await user_repo.get_rank(user_id)
-            total_users = await user_repo.get_total_users()
-
-            correct = int(stats.get("correct_count", 0))
-            wrong = int(stats.get("wrong_count", 0))
-            total_ans = correct + wrong
-            accuracy = f"{round(correct / total_ans * 100)}%" if total_ans > 0 else "—"
-            current_streak = stats.get("current_streak", 0)
-            best_streak = stats.get("best_streak", 0)
-            points = stats.get("total_points", 0)
-            rank_str = f"#{rank}" if rank else "—"
-
-            embed = discord.Embed(
-                title=f"📊 إحصائياتك في ByteDaily | Your ByteDaily Stats",
-                color=discord.Color.blurple(),
+            footer_icon = self.bot.user.display_avatar.url if self.bot.user else None
+            embed = build_developer_profile_embed(
+                user=target,
+                stats=detailed_stats,
+                footer_icon_url=footer_icon,
             )
-            embed.set_author(
-                name=str(interaction.user),
-                icon_url=interaction.user.display_avatar.url,
-            )
-            embed.add_field(
-                name="🏅 الترتيب • Rank",
-                value=f"**{rank_str}** / {total_users} (مشارك • participants)",
-                inline=True,
-            )
-            embed.add_field(
-                name="⭐ النقاط • Points",
-                value=f"**{points}** pts",
-                inline=True,
-            )
-            embed.add_field(
-                name="🔥 السلسلة • Streak (Current/Best)",
-                value=f"**{current_streak}** / **{best_streak}**",
-                inline=True,
-            )
-            embed.add_field(
-                name="✅ إجابات صحيحة • Correct",
-                value=f"**{correct}** / {total_ans}",
-                inline=True,
-            )
-            embed.add_field(
-                name="🎯 نسبة الدقة • Accuracy",
-                value=accuracy,
-                inline=True,
-            )
-            embed.add_field(
-                name="❌ إجابات خاطئة • Incorrect",
-                value=str(wrong),
-                inline=True,
-            )
-            embed.set_footer(text="حل التحدي اليومي لتحسين ترتيبك! • Solve daily challenges to climb the ranks!")
-
-            await interaction.followup.send(embed=embed, ephemeral=True)
+            view = ProfileInteractiveView(target_user_id=target_id, caller_user_id=interaction.user.id)
+            await interaction.followup.send(embed=embed, view=view, ephemeral=True)
 
         except Exception as e:
-            log.error(f"ByteDaily: /bytedaily-rank error for user {user_id}: {e}", exc_info=True)
+            log.error(f"ByteDaily: /profile error for user {target_id}: {e}", exc_info=True)
             await interaction.followup.send(
-                embed=make_error_embed("خطأ • Error", f"فشل جلب إحصائياتك / Failed to fetch stats: {e}"),
+                embed=make_error_embed("خطأ • Error", f"فشل جلب الملف البرمجي / Failed to fetch developer profile: {e}"),
                 ephemeral=True,
             )
+
+    @app_commands.command(
+        name="bytedaily-rank",
+        description="عرض إحصائياتك ورتبتك / View your personal ByteDaily rank and stats",
+    )
+    @app_commands.describe(user="المطور المراد عرض رتبته (اختياري) / Target developer (optional)")
+    async def bytedaily_rank(
+        self,
+        interaction: discord.Interaction,
+        user: Optional[discord.Member] = None,
+    ) -> None:
+        """Show the caller's or target's personal ByteDaily stats card with badges."""
+        await self.profile_cmd(interaction, user=user)
+
 
 
 async def setup(bot: commands.Bot) -> None:

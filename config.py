@@ -26,10 +26,13 @@ GUILD_ID = int(os.getenv("GUILD_ID") or "0")  # 0 يعني المزامنة ال
 PUBLIC_LOG_CHANNEL_NAME = os.getenv("LOG_CHANNEL", "╔〖💬┇〢general・chat")
 
 RULES_ACCEPTED_ROLE_NAMES = [
+    "👥 | Member",
     "✔ Rules Accepted",
     "Rules Accepted",
     "Member",
     "Verified",
+    "🌱 | Intern",
+    "Intern",
     "عضو",
     "مفعل",
 ]
@@ -46,6 +49,64 @@ ROLE_MAP = {
     "mobile_developer": "📱 | Mobile Developer",
     "junior_developer": "📝 | Junior Developer",
 }
+
+# بيانات وألوان رتب التخصصات
+TRACK_ROLE_METADATA = {
+    "frontend": {"name": "🎨 | Frontend Developer", "color": 0x3498DB},
+    "backend": {"name": "🔧 | Backend Developer", "color": 0x2ECC71},
+    "solutions_architect": {"name": "🏗️ | Solutions Architect", "color": 0xE67E22},
+    "system_architect": {"name": "🖥️ | System Architect", "color": 0x9B59B6},
+    "security_engineer": {"name": "🛡️ |Security Engineer", "color": 0xE74C3C},
+    "software_engineer": {"name": "💻 | Software Engineer", "color": 0x1ABC9C},
+    "fullstack_developer": {"name": "⚙️ | Full-Stack Developer", "color": 0xF1C40F},
+    "mobile_developer": {"name": "📱 | Mobile Developer", "color": 0x95A5A6},
+    "junior_developer": {"name": "📄 | Junior Developer", "color": 0x7289DA},
+}
+
+# خريطة رتب المستويات البرمجية (ByteDaily Developer Tier Roles)
+TIER_ROLES = [
+    {
+        "key": "tier_legendary",
+        "name": "👑 | Legendary Architect",
+        "min_points": 500,
+        "color": 0xF1C40F,  # Gold
+        "title_en": "Legendary Architect",
+        "title_ar": "مهندس برمجيات أسطوري",
+    },
+    {
+        "key": "tier_lead",
+        "name": "💎 | Lead Engineer",
+        "min_points": 250,
+        "color": 0x1ABC9C,  # Teal
+        "title_en": "Lead Engineer",
+        "title_ar": "قائد تقني متميز",
+    },
+    {
+        "key": "tier_senior",
+        "name": "🚀 | Senior Developer",
+        "min_points": 100,
+        "color": 0x9B59B6,  # Purple
+        "title_en": "Senior Developer",
+        "title_ar": "مطور برمجيات متقدم",
+    },
+    {
+        "key": "tier_coder",
+        "name": "⚡ | Full-Stack Coder",
+        "min_points": 40,
+        "color": 0x3498DB,  # Blue
+        "title_en": "Full-Stack Coder",
+        "title_ar": "مبرمج متمرس",
+    },
+    {
+        "key": "tier_junior",
+        "name": "🥉 | Junior Dev",
+        "min_points": 10,
+        "color": 0xE67E22,  # Orange
+        "title_en": "Junior Dev",
+        "title_ar": "مطور واعد",
+    },
+]
+
 
 # إعدادات الاختبارات
 QUESTIONS_COUNT = 3

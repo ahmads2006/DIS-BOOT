@@ -19,7 +19,11 @@ class OnboardingCog(commands.Cog, name="Onboarding"):
 
     def _has_rules_role(self, member: discord.Member) -> bool:
         member_roles = {r.name for r in member.roles}
-        return any(name in member_roles for name in RULES_ACCEPTED_ROLE_NAMES)
+        if any(name in member_roles for name in RULES_ACCEPTED_ROLE_NAMES):
+            return True
+        lower_roles = {r.name.lower() for r in member.roles}
+        return any("member" in lr or "rules" in lr or "intern" in lr for lr in lower_roles)
+
 
     async def _send_onboarding(self, member: discord.Member) -> bool:
         if member.id in onboarding_sent_to:

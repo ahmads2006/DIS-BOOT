@@ -321,3 +321,93 @@ async def set_preferred_language(user_id: int, language: Optional[str] = "en") -
         log.warning(f"ByteDaily: Could not set preferred_language for user {user_id}: {e}")
 
 
+async def get_user_detailed_stats(user_id: int) -> Optional[Dict[str, Any]]:
+    """
+    Fetch comprehensive developer profile statistics for a user, including:
+    - User stats row from bd_users (points, streaks, counts)
+    - 1-based leaderboard rank
+    - Total participants count
+    - Answer accuracy percentage
+    - Top tags/categories answered correctly
+    - Unlocked badges list
+    """
+    stats = await get_by_id(user_id)
+    if not stats:
+        return None
+
+    rank = await get_rank(user_id)
+    total_users = await get_total_users()
+
+    correct = int(stats.get("correct_count", 0))
+    wrong = int(stats.get("wrong_count", 0))
+    total_ans = correct + wrong
+    accuracy = round((correct / total_ans) * 100) if total_ans > 0 else 0
+    points = int(stats.get("total_points", 0))
+    current_streak = int(stats.get("current_streak", 0))
+    best_streak = int(stats.get("best_streak", 0) or stats.get("highest_streak", 0))
+
+    # Calculate unlocked badges
+    badges = []
+    if points >= 10:
+        badges.append(("🎯", "First Step", "الخطوة الأولى"))
+    if points >= 50:
+        badges.append(("⚡", "Fast Learner", "متعلم نشط"))
+    if points >= 100:
+        badges.append(("🚀", "Century Club", "نادي المئة نقطة"))
+    if points >= 250:
+        badges.append(("💎", "Master Coder", "خبير الأكواد"))
+    if points >= 500:
+        badges.append(("👑", "Legendary Dev", "مطور أسطوري"))
+
+    if best_streak >= 3:
+        badges.append(("🔥", "On Fire", "شعلة الحماس (3 أيام)"))
+    if best_streak >= 5:
+        badges.append(("🌟", "Unstoppable", "لا يتوقف (5 أيام)"))
+    if best_streak >= 10:
+        badges.append(("🏆", "Streak Legend", "أسطورة الـ Streak (10 أيام)"))
+
+    if rank == 1:
+        badges.append(("🥇", "#1 Champion", "بطل السيرفر الأول"))
+    elif rank in (2, 3):
+        badges.append(("🥈", "Top 3 Elite", "نخبة التوب 3"))
+    elif rank and rank <= 10:
+        badges.append(("🏅", "Top 10 Contender", "من أفضل 10 مطورين"))
+
+    # Top category query if available
+    top_categories = []
+    try:
+        cat_rows = await bd_db.fetch(
+            """
+            SELECT unnest(q.tags) AS tag, COUNT(*) AS count
+            FROM bd_answers a
+            JOIN bd_polls p ON a.poll_id = p.id
+            JOIN bd_questions q ON p.question_id = q.id
+            WHERE a.user_id = $1 AND a.is_correct = TRUE AND q.tags IS NOT NULL
+            GROUP BY tag
+            ORDER BY count DESC
+            LIMIT 3
+            """,
+            user_id,
+        )
+        top_categories = [r["tag"] for r in cat_rows if r.get("tag")]
+    except Exception:
+        top_categories = []
+
+    return {
+        "user_id": user_id,
+        "total_points": points,
+        "correct_count": correct,
+        "wrong_count": wrong,
+        "total_answers": total_ans,
+        "accuracy": accuracy,
+        "current_streak": current_streak,
+        "best_streak": best_streak,
+        "rank": rank,
+        "total_users": total_users,
+        "badges": badges,
+        "top_categories": top_categories,
+        "preferred_language": stats.get("preferred_language"),
+    }
+
+
+

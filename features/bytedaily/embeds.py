@@ -414,3 +414,118 @@ def build_streak_milestone_embed(
     embed.set_footer(text="DevQuest Engine • ByteDaily Gamification")
     return embed
 
+
+def get_developer_tier(points: int) -> Dict[str, Any]:
+    """Calculate developer title, badge, next target, and color based on points."""
+    tiers = [
+        (500, "👑 Legendary Architect", "مهندس برمجيات أسطوري", discord.Color.gold(), 1000),
+        (250, "💎 Lead Engineer", "قائد تقني متميز", discord.Color.teal(), 500),
+        (100, "🚀 Senior Developer", "مطور برمجيات متقدم", discord.Color.purple(), 250),
+        (40, "⚡ Full-Stack Coder", "مبرمج متمرس", discord.Color.blue(), 100),
+        (10, "🥉 Junior Dev", "مطور واعد", discord.Color.orange(), 40),
+        (0, "🌱 Tech Novice", "مستكشف مبتدئ", discord.Color.dark_grey(), 10),
+    ]
+    for min_pts, title_en, title_ar, color, next_target in tiers:
+        if points >= min_pts:
+            progress = min(100, round((points / next_target) * 100)) if next_target else 100
+            return {
+                "title_en": title_en,
+                "title_ar": title_ar,
+                "color": color,
+                "next_target": next_target,
+                "progress": progress,
+            }
+    return {
+        "title_en": "🌱 Tech Novice",
+        "title_ar": "مستكشف مبتدئ",
+        "color": discord.Color.dark_grey(),
+        "next_target": 10,
+        "progress": 0,
+    }
+
+
+def build_developer_profile_embed(
+    user: Any,
+    stats: Dict[str, Any],
+    footer_icon_url: Optional[str] = None,
+) -> discord.Embed:
+    """Build a luxury bilingual developer profile card embed."""
+    points = stats.get("total_points", 0)
+    tier = get_developer_tier(points)
+    rank_val = stats.get("rank")
+    rank_str = f"#{rank_val}" if rank_val else "—"
+    total_users = stats.get("total_users", 0)
+
+    # Progress bar calculation
+    filled_blocks = int(tier["progress"] / 10)
+    empty_blocks = 10 - filled_blocks
+    progress_bar = f"[`{'█' * filled_blocks}{'░' * empty_blocks}`] **{tier['progress']}%**"
+
+    embed = discord.Embed(
+        title="💻 ملف المطور • Developer Profile",
+        description=(
+            f"### {tier['title_en']} | {tier['title_ar']}\n"
+            f"⭐ **الرتبة والمستوى • Level Progress:**\n"
+            f"{progress_bar} (`{points}/{tier['next_target']} pts`)\n"
+        ),
+        color=tier["color"],
+        timestamp=datetime.now(timezone.utc),
+    )
+    
+    avatar_url = user.display_avatar.url if hasattr(user, "display_avatar") else None
+    name_str = f"{user.display_name} (@{user.name})" if hasattr(user, "display_name") else str(user)
+
+    embed.set_author(name=name_str, icon_url=avatar_url)
+    if avatar_url:
+        embed.set_thumbnail(url=avatar_url)
+
+    embed.add_field(
+        name="🏅 الترتيب • Server Rank",
+        value=f"**{rank_str}** / {total_users} (مشارك • devs)",
+        inline=True,
+    )
+    embed.add_field(
+        name="⭐ إجمالي النقاط • Total Points",
+        value=f"**{points}** pts",
+        inline=True,
+    )
+    embed.add_field(
+        name="🔥 السلسلة • Streak",
+        value=f"حالية: **{stats.get('current_streak', 0)}** | أفضل: **{stats.get('best_streak', 0)}**",
+        inline=True,
+    )
+
+    accuracy_val = (
+        f"🎯 **{stats.get('accuracy', 0)}%** "
+        f"(`{stats.get('correct_count', 0)}` صحيحة • correct / "
+        f"`{stats.get('wrong_count', 0)}` خاطئة • wrong)"
+    )
+    embed.add_field(
+        name="📊 الدقة والإجابات • Accuracy & Solved",
+        value=accuracy_val,
+        inline=False,
+    )
+
+    if stats.get("top_categories"):
+        cat_str = " • ".join([f"`{c}`" for c in stats["top_categories"]])
+        embed.add_field(
+            name="🛠️ التخصصات المتقنة • Mastered Tracks",
+            value=cat_str,
+            inline=False,
+        )
+
+    badges = stats.get("badges", [])
+    if badges:
+        badge_lines = [f"{b[0]} **{b[1]}** ({b[2]})" for b in badges[:6]]
+        embed.add_field(
+            name="🏆 الأوسمة والإنجازات • Badges & Achievements",
+            value="\n".join(badge_lines),
+            inline=False,
+        )
+
+    embed.set_footer(
+        text="DevQuest Engine • ByteDaily Developer Network",
+        icon_url=footer_icon_url,
+    )
+    return embed
+

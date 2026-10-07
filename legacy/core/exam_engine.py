@@ -313,6 +313,17 @@ async def handle_exam_success(
 
     if guild:
         role_obj = find_role_smart(guild, role_key)
+        if not role_obj:
+            from core.role_manager import find_or_create_role
+            from config import TRACK_ROLE_METADATA
+            meta = TRACK_ROLE_METADATA.get(role_key, {"name": role_name, "color": 0x3498DB})
+            role_obj, _ = await find_or_create_role(
+                guild=guild,
+                role_name=meta["name"],
+                color_hex=meta["color"],
+                reason="Passed technical certification exam (Auto-creation)",
+            )
+
         if role_obj:
             role_name = role_obj.name
             member = guild.get_member(user.id)
@@ -340,6 +351,7 @@ async def handle_exam_success(
                     log.warning(
                         f"⚠️ Bot role '{top_name}' is not higher than target role '{role_obj.name}' in {guild.name}!"
                     )
+
 
         # Send public celebration announcement in general chat
         general_channel = find_announcement_channel(guild)

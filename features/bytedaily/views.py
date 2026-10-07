@@ -38,6 +38,7 @@ from .embeds import (
     build_challenge_embed,
     build_english_challenge_embed,
     build_streak_milestone_embed,
+    build_developer_profile_embed,
 )
 
 
@@ -283,24 +284,38 @@ class DynamicAnswerButton(
             await interaction.followup.send(embed=embed, ephemeral=True)
 
             # Public Milestone Announcement if 5-day or 10-day streak achieved
-            if streak_info.get("milestone"):
+            ann_channel = interaction.channel or (interaction.client.get_channel(BD_CHANNEL_ID) if BD_CHANNEL_ID else None)
+            if streak_info.get("milestone") and ann_channel:
                 try:
-                    ann_channel = interaction.channel or (interaction.client.get_channel(BD_CHANNEL_ID) if BD_CHANNEL_ID else None)
-                    if ann_channel:
-                        user_avatar = interaction.user.display_avatar.url if interaction.user else None
-                        announcement_embed = build_streak_milestone_embed(
-                            user_id=interaction.user.id,
-                            milestone=streak_info["milestone"],
-                            bonus_points=streak_info["bonus_points"],
-                            is_en=is_en,
-                            user_avatar_url=user_avatar,
-                        )
-                        await ann_channel.send(
-                            content=f"🎉 <@{interaction.user.id}>",
-                            embed=announcement_embed,
-                        )
+                    user_avatar = interaction.user.display_avatar.url if interaction.user else None
+                    announcement_embed = build_streak_milestone_embed(
+                        user_id=interaction.user.id,
+                        milestone=streak_info["milestone"],
+                        bonus_points=streak_info["bonus_points"],
+                        is_en=is_en,
+                        user_avatar_url=user_avatar,
+                    )
+                    await ann_channel.send(
+                        content=f"🎉 <@{interaction.user.id}>",
+                        embed=announcement_embed,
+                    )
                 except Exception as e:
                     log.warning(f"ByteDaily: Failed sending streak milestone announcement: {e}")
+
+            # Automated Tier Role Progression & Synchronization
+            try:
+                if interaction.guild and isinstance(interaction.user, discord.Member):
+                    from core.role_manager import sync_developer_tier_role
+                    updated_stats = await user_repo.get_by_id(interaction.user.id)
+                    total_pts = int(updated_stats.get("total_points", 0)) if updated_stats else 0
+                    await sync_developer_tier_role(
+                        member=interaction.user,
+                        total_points=total_pts,
+                        general_channel=ann_channel,
+                    )
+            except Exception as e:
+                log.warning(f"ByteDaily: Error checking tier role progression for {interaction.user.id}: {e}")
+
         except Exception as e:
             log.error(
                 f"ByteDaily: Answer callback error poll=#{self.poll_id} "
@@ -645,3 +660,27 @@ class ByteDailyResultView(View):
         super().__init__(timeout=None)
         self.poll_id = poll_id
         self.add_item(DynamicResultButton(poll_id=poll_id))
+
+
+class ProfileInteractiveView(View):
+    """Interactive view attached to developer profile cards."""
+
+    def __init__(self, target_user_id: int, caller_user_id: int) -> None:
+        super().__init__(timeout=180)
+        self.target_user_id = target_user_id
+        self.caller_user_id = caller_user_id
+
+    @discord.ui.button(label="🔄 تحديث • Refresh", style=discord.ButtonStyle.primary, row=0)
+    async def refresh_profile(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        if not await _defer_ephemeral(interaction):
+            return
+
+        stats = await user_repo.get_user_detailed_stats(self.target_user_id)
+        if not stats:
+            await interaction.followup.send("⚠️ لا توجد بيانات لهذا المطور بعد. | No profile data found.", ephemeral=True)
+            return
+
+        target_user = interaction.client.get_user(self.target_user_id) or await interaction.client.fetch_user(self.target_user_id)
+        footer_icon = interaction.client.user.display_avatar.url if interaction.client.user else None
+        embed = build_developer_profile_embed(target_user, stats, footer_icon_url=footer_icon)
+        await interaction.edit_original_response(embed=embed, view=self)

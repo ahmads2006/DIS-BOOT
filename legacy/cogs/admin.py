@@ -118,10 +118,88 @@ class AdminCog(commands.Cog, name="Admin"):
         view = ExamPanelLaunchView(self.bot)
         await target_channel.send(embed=embed, view=view)
 
-        await interaction.response.send_message(
-            f"✅ تم إرسال لوحة الاختبارات الثابتة بنجاح إلى القناة {target_channel.mention}!",
-            ephemeral=True
-        )
+    @app_commands.command(
+        name="setup-roles",
+        description="[للمشرفين] إنشاء وتهيئة جميع رتب التخصصات والمستويات البرمجية تلقائياً / [Admin] Setup server roles",
+    )
+    @app_commands.checks.has_permissions(administrator=True)
+    async def setup_roles_cmd(self, interaction: discord.Interaction) -> None:
+        """Auto-create all missing track specialization and developer tier roles in the server."""
+        if not interaction.guild:
+            await interaction.response.send_message("❌ هذا الأمر يعمل فقط داخل السيرفرات. / Server only command.", ephemeral=True)
+            return
+
+        await interaction.response.defer(ephemeral=True)
+        from core.role_manager import setup_all_server_roles
+
+        bot_member = interaction.guild.me
+        if not bot_member or not bot_member.guild_permissions.manage_roles:
+            await interaction.followup.send(
+                embed=discord.Embed(
+                    title="⚠️ صلاحيات غير كافية • Missing Permissions",
+                    description=(
+                        "البوت لا يمتلك صلاحية **`Manage Roles` (إدارة الرتب)** في هذا السيرفر!\n"
+                        "The bot lacks the **`Manage Roles`** permission in this server.\n\n"
+                        "يرجى منح البوت الصلاحية ثم إعادة المحاولة."
+                    ),
+                    color=discord.Color.red(),
+                ),
+                ephemeral=True,
+            )
+            return
+
+        try:
+            results = await setup_all_server_roles(interaction.guild)
+            created = results.get("created", [])
+            existing = results.get("existing", [])
+            failed = results.get("failed", [])
+            total = results.get("total_managed", 0)
+
+            embed = discord.Embed(
+                title="✨ تهيئة رتب السيرفر البرمجية • Server Roles Setup",
+                description=(
+                    f"تم فحص وتهيئة **{total}** رتبة برمجية (رتب التخصصات + رتب المستويات والأوسمة).\n"
+                    f"Verified and synchronized **{total}** technical roles (Specializations + Level Tiers).\n"
+                    "──────────────────────────────────"
+                ),
+                color=discord.Color.green(),
+                timestamp=datetime.datetime.now(datetime.timezone.utc),
+            )
+
+            if created:
+                embed.add_field(
+                    name=f"🆕 تم إنشاؤها بنجاح • Newly Created ({len(created)})",
+                    value="\n".join(created[:10]) + (f"\n*...و {len(created)-10} رتب أخرى*" if len(created) > 10 else ""),
+                    inline=False,
+                )
+            if existing:
+                embed.add_field(
+                    name=f"✅ موجودة مسبقاً • Already Existed ({len(existing)})",
+                    value="\n".join(existing[:10]) + (f"\n*...و {len(existing)-10} رتب أخرى*" if len(existing) > 10 else ""),
+                    inline=False,
+                )
+            if failed:
+                embed.add_field(
+                    name=f"⚠️ تعذر إنشاؤها • Failed ({len(failed)})",
+                    value="\n".join(failed[:10]),
+                    inline=False,
+                )
+
+            guild_icon = interaction.guild.icon.url if interaction.guild.icon else None
+            if guild_icon:
+                embed.set_thumbnail(url=guild_icon)
+            embed.set_footer(text="DevQuest Role Engine • Automatic Server Configuration")
+
+            await interaction.followup.send(embed=embed, ephemeral=True)
+        except Exception as e:
+            await interaction.followup.send(
+                embed=discord.Embed(
+                    title="خطأ • Error",
+                    description=f"حدث خطأ أثناء تهيئة الرتب / Role setup error: {e}",
+                    color=discord.Color.red(),
+                ),
+                ephemeral=True,
+            )
 
     @commands.command(name="setup-exam-panel")
     @commands.has_permissions(administrator=True)
