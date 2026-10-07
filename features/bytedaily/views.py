@@ -621,8 +621,9 @@ class DynamicResultButton(
 
 class DynamicRemindButton(
     DynamicItem[Button],
-    template=f"{CUSTOM_ID_PREFIX_REMIND}"
+    template=rf"{CUSTOM_ID_PREFIX_REMIND}(?P<poll_id>[0-9]+)",
 ):
+
     """Persistent dynamic button for toggling daily streak reminders."""
 
     def __init__(self, poll_id: int = 0, disabled: bool = False, row: Optional[int] = 1) -> None:

@@ -379,3 +379,81 @@ class ExamPanelLaunchView(View):
                 )
             except Exception:
                 pass
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 5. Interactive Certificate Track Switcher (Single Card at a time)
+# ─────────────────────────────────────────────────────────────────────────────
+
+class CertificateSelectView(View):
+    """Dropdown view to switch between multiple certificates one at a time."""
+
+    def __init__(
+        self,
+        target_user: discord.abc.User,
+        certificates: list,
+        guild: Optional[discord.Guild] = None,
+    ) -> None:
+        super().__init__(timeout=180)
+        self.target_user = target_user
+        self.certificates = certificates
+        self.guild = guild
+        self._build_select()
+
+    def _build_select(self) -> None:
+        options = []
+        for cert in self.certificates[:25]:
+            role_k = cert.get("role_key", "dev")
+            info = get_track_info(role_k, "ar")
+            cert_id = cert.get("cert_code") or "N/A"
+            label = f"{info['title']} (#{cert_id})"
+            options.append(
+                discord.SelectOption(
+                    label=label[:100],
+                    value=cert_id,
+                    description=f"Score: {cert.get('score', 0)}/{cert.get('total_questions', 0)}",
+                    emoji="📜",
+                )
+            )
+
+        select = Select(
+            placeholder="اختر الشهادة لعرضها | Select Certificate to view...",
+            options=options,
+            custom_id="cert_switcher_select",
+        )
+        select.callback = self.select_callback
+        self.add_item(select)
+
+    async def select_callback(self, interaction: discord.Interaction) -> None:
+        from legacy.core.exam_engine import ROLE_MAP, build_certificate_card_embed
+
+        chosen_code = interaction.data["values"][0]
+        chosen_cert = next(
+            (c for c in self.certificates if c.get("cert_code") == chosen_code),
+            self.certificates[0] if self.certificates else None,
+        )
+        if not chosen_cert:
+            await interaction.response.send_message("❌ لم يتم العثور على الشهادة.", ephemeral=True)
+            return
+
+        role_key = chosen_cert.get("role_key", "dev")
+        role_name = ROLE_MAP.get(role_key, role_key)
+        role_mention = None
+        if self.guild:
+            role_obj = discord.utils.get(self.guild.roles, name=role_name)
+            if role_obj:
+                role_mention = role_obj.mention
+
+        embed = build_certificate_card_embed(
+            user=self.target_user,
+            role_key=role_key,
+            score=chosen_cert.get("score", 0),
+            total_q=chosen_cert.get("total_questions", 0),
+            cert_code=chosen_cert.get("cert_code") or "N/A",
+            timestamp=chosen_cert.get("timestamp", 0.0),
+            guild=self.guild,
+            role_mention=role_mention,
+        )
+
+        await interaction.response.edit_message(embed=embed, view=self)
+

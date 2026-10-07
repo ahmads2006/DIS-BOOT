@@ -130,20 +130,29 @@ class DatabaseLayer:
     # سجل الاختبارات والإحصائيات
     # ==========================
 
-    async def record_exam_attempt(self, user_id: int, role: str, score: int, passed: bool):
+    async def record_exam_attempt(self, user_id: int, role: str, score: int, passed: bool, cert_code: Optional[str] = None):
         now = time.time()
 
         if self.is_connected and self.pool:
             try:
                 async with self.pool.acquire() as conn:
-                    await conn.execute(
-                        """
-                        INSERT INTO exam_history (user_id, role, score, passed, timestamp)
-                        VALUES ($1, $2, $3, $4, $5)
-                        """,
-                        user_id, role, score, passed, now
-                    )
-                    log.info(f"Recorded exam to Supabase: user={user_id}, role={role}, passed={passed}")
+                    try:
+                        await conn.execute(
+                            """
+                            INSERT INTO exam_history (user_id, role, score, passed, timestamp, cert_code)
+                            VALUES ($1, $2, $3, $4, $5, $6)
+                            """,
+                            user_id, role, score, passed, now, cert_code
+                        )
+                    except Exception:
+                        await conn.execute(
+                            """
+                            INSERT INTO exam_history (user_id, role, score, passed, timestamp)
+                            VALUES ($1, $2, $3, $4, $5)
+                            """,
+                            user_id, role, score, passed, now
+                        )
+                    log.info(f"Recorded exam to Supabase: user={user_id}, role={role}, passed={passed}, cert={cert_code}")
                     return
             except Exception as e:
                 log.error(f"PostgreSQL error recording exam: {e}")
@@ -155,6 +164,7 @@ class DatabaseLayer:
             "score": score,
             "passed": passed,
             "timestamp": now,
+            "cert_code": cert_code,
         })
 
     async def get_user_history(self, user_id: int) -> List[Dict[str, Any]]:
@@ -163,7 +173,7 @@ class DatabaseLayer:
                 async with self.pool.acquire() as conn:
                     rows = await conn.fetch(
                         """
-                        SELECT user_id, role, score, passed, timestamp
+                        SELECT user_id, role, score, passed, timestamp, cert_code
                         FROM exam_history
                         WHERE user_id = $1
                         ORDER BY id DESC
@@ -176,6 +186,52 @@ class DatabaseLayer:
                 log.error(f"PostgreSQL error fetching user history: {e}")
 
         return [r for r in self._local_exam_history if r["user_id"] == user_id]
+
+    async def get_user_certificates(self, user_id: int) -> List[Dict[str, Any]]:
+        """Get all passed certification records for a user."""
+        if self.is_connected and self.pool:
+            try:
+                async with self.pool.acquire() as conn:
+                    rows = await conn.fetch(
+                        """
+                        SELECT id, user_id, role, score, passed, timestamp, cert_code
+                        FROM exam_history
+                        WHERE user_id = $1 AND passed = TRUE
+                        ORDER BY id DESC
+                        """,
+                        user_id
+                    )
+                    return [dict(r) for r in rows]
+            except Exception as e:
+                log.error(f"PostgreSQL error fetching user certificates: {e}")
+
+        return [r for r in self._local_exam_history if r.get("user_id") == user_id and r.get("passed")]
+
+    async def get_certificate_by_code(self, cert_code: str) -> Optional[Dict[str, Any]]:
+        """Find certificate record by its unique code."""
+        clean_code = cert_code.strip().lstrip("#").upper()
+        if self.is_connected and self.pool:
+            try:
+                async with self.pool.acquire() as conn:
+                    row = await conn.fetchrow(
+                        """
+                        SELECT id, user_id, role, score, passed, timestamp, cert_code
+                        FROM exam_history
+                        WHERE UPPER(cert_code) = $1 AND passed = TRUE
+                        LIMIT 1
+                        """,
+                        clean_code
+                    )
+                    if row:
+                        return dict(row)
+            except Exception as e:
+                log.error(f"PostgreSQL error finding certificate {clean_code}: {e}")
+
+        for r in self._local_exam_history:
+            if r.get("cert_code") and str(r.get("cert_code")).strip().lstrip("#").upper() == clean_code:
+                return r
+        return None
+
 
     async def get_stats(self) -> Dict[str, Any]:
         all_records = []

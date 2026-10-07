@@ -11,6 +11,7 @@ Handles:
 """
 
 import asyncio
+from datetime import datetime, timezone
 import time
 from typing import Any, Dict, List, Optional, Tuple
 import discord
@@ -294,6 +295,67 @@ async def _cleanup_dm_messages(user: discord.User, message_ids: List[int]) -> No
         log.warning(f"Error cleaning up DM messages for {user.name}: {e}")
 
 
+def generate_certificate_code(role_key: str) -> str:
+    """Generate a clean, memorable, unique certificate code like DQ-7821-BE."""
+    import random
+    prefix = role_key.replace("_", "")[:3].upper() if role_key else "DEV"
+    rand_num = random.randint(1000, 9999)
+    return f"DQ-{rand_num}-{prefix}"
+
+
+def build_certificate_card_embed(
+    user: Any,
+    role_key: str,
+    score: int,
+    total_q: int,
+    cert_code: str,
+    timestamp: float,
+    guild: Optional[discord.Guild] = None,
+    role_mention: Optional[str] = None,
+) -> discord.Embed:
+    """Build a luxury, verified technical certificate embed."""
+    issue_date = datetime.fromtimestamp(timestamp, tz=timezone.utc).strftime("%Y-%m-%d")
+    role_name = ROLE_MAP.get(role_key, role_key)
+    role_display = role_mention or f"**{role_name}**"
+
+    embed = discord.Embed(
+        title="🏆 شهادة اعتماد برمجية | Verified Technical Certification",
+        description=(
+            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+            f"🎉 **نبارك للمبدع / Congratulations to {user.mention if hasattr(user, 'mention') else f'<@{user.id}>'}!**\n\n"
+            f"🏷️ **الرتبة الممنوحة / Granted Role:** {role_display}\n"
+            f"📊 **النتيجة / Score:** `{score}/{total_q}` (100% ⭐)\n"
+            f"🏅 **الحالة / Status:** **مطور معتمد | Certified Developer** 🚀\n"
+            f"📅 **تاريخ الإصدار / Issue Date:** `{issue_date}` (🟢 معتمد وموثق • Active)\n"
+            f"🆔 **رمز التوثيق / Certificate ID:** `#{cert_code}`\n\n"
+            f"> 💡 *تم تقييم المهارات التقنية واجتياز المعايير البرمجية بنجاح.*\n"
+            f"> 💡 *Successfully verified and demonstrated technical excellence.*\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        ),
+        color=discord.Color.from_rgb(46, 204, 113),
+        timestamp=datetime.fromtimestamp(timestamp, tz=timezone.utc),
+    )
+
+    avatar_url = (
+        user.display_avatar.url
+        if hasattr(user, "display_avatar")
+        else (user.avatar.url if hasattr(user, "avatar") and user.avatar else None)
+    )
+    if avatar_url:
+        embed.set_thumbnail(url=avatar_url)
+
+    guild_icon = guild.icon.url if guild and guild.icon else None
+    if guild_icon:
+        embed.set_footer(
+            text=f"{guild.name} • Technical Certification System",
+            icon_url=guild_icon,
+        )
+    else:
+        embed.set_footer(text="DevQuest Engine • Technical Certification System")
+
+    return embed
+
+
 async def handle_exam_success(
     bot: discord.Client,
     user: discord.User,
@@ -310,6 +372,8 @@ async def handle_exam_success(
     guild = bot.get_guild(guild_id)
     role_obj = None
     role_name = ROLE_MAP.get(role_key, role_key)
+    cert_code = generate_certificate_code(role_key)
+    now_ts = time.time()
 
     if guild:
         role_obj = find_role_smart(guild, role_key)
@@ -358,39 +422,16 @@ async def handle_exam_success(
         if general_channel:
             try:
                 role_display = role_obj.mention if role_obj else f"**{role_name}**"
-                track_info = get_track_info(role_key)
-
-                cert_embed = discord.Embed(
-                    title="🏆 شهادة اعتماد برمجية | Verified Technical Certification",
-                    description=(
-                        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
-                        f"🎉 **نبارك للمبدع / Congratulations to {user.mention}!**\n\n"
-                        f"🏷️ **الرتبة الممنوحة / Granted Role:** {role_display}\n"
-                        f"📊 **النتيجة / Score:** `{exam['score']}/{total_q}` (100% ⭐)\n"
-                        f"🏅 **الحالة / Status:** **مطور معتمد | Certified Developer** 🚀\n\n"
-                        f"> 💡 *تم تقييم المهارات التقنية واجتياز المعايير البرمجية بنجاح.*\n"
-                        f"> 💡 *Successfully verified and demonstrated technical excellence.*\n"
-                        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-                    ),
-                    color=discord.Color.from_rgb(46, 204, 113),
+                cert_embed = build_certificate_card_embed(
+                    user=user,
+                    role_key=role_key,
+                    score=exam["score"],
+                    total_q=total_q,
+                    cert_code=cert_code,
+                    timestamp=now_ts,
+                    guild=guild,
+                    role_mention=role_display,
                 )
-
-                user_avatar = (
-                    user.display_avatar.url
-                    if hasattr(user, "display_avatar")
-                    else (user.avatar.url if user.avatar else None)
-                )
-                if user_avatar:
-                    cert_embed.set_thumbnail(url=user_avatar)
-
-                guild_icon = guild.icon.url if guild.icon else None
-                if guild_icon:
-                    cert_embed.set_footer(
-                        text=f"{guild.name} • Technical Certification System",
-                        icon_url=guild_icon,
-                    )
-                else:
-                    cert_embed.set_footer(text="Technical Certification System")
 
                 await general_channel.send(
                     content=f"📣 تهانينا الحارة لـ {user.mention} بمناسبة ترقيته الجديدة! • Congratulations on your new certification!",
@@ -408,6 +449,7 @@ async def handle_exam_success(
             score=exam["score"],
             total=total_q,
         )
+        desc_text += f"\n\n🆔 **رمز شهادتك الموثقة / Certificate ID:** `#{cert_code}`\n📅 **تاريخ الإصدار / Issue Date:** `{datetime.fromtimestamp(now_ts, tz=timezone.utc).strftime('%Y-%m-%d')}`"
         success_embed = discord.Embed(
             title=copy["success_title"],
             description=desc_text,
@@ -418,13 +460,14 @@ async def handle_exam_success(
     except Exception as e:
         log.warning(f"Could not send success DM to {user.name}: {e}")
 
-    # Record attempt & cleanup memory
-    await db.record_exam_attempt(user.id, role_key, exam["score"], passed=True)
+    # Record attempt with cert_code & cleanup memory
+    await db.record_exam_attempt(user.id, role_key, exam["score"], passed=True, cert_code=cert_code)
     active_exams.pop(user.id, None)
 
     if result_msg:
         dm_message_ids.append(result_msg.id)
     asyncio.create_task(_cleanup_dm_messages(user, dm_message_ids))
+
 
 
 async def handle_exam_fail(

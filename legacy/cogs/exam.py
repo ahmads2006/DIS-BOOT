@@ -173,6 +173,152 @@ class ExamCog(commands.Cog, name="Exam"):
                 ephemeral=True,
             )
 
+    @app_commands.command(
+        name="certificate",
+        description="عرض الشهادة البرمجية المعتمدة للمطور / View Developer's Certified Credential",
+    )
+    @app_commands.describe(
+        user="المطور المراد عرض شهادته (افتراضياً: أنت) / The developer whose certificate to view",
+    )
+    async def certificate_command(
+        self,
+        interaction: discord.Interaction,
+        user: Optional[discord.Member] = None,
+    ) -> None:
+        """Display a single verified certificate card, with interactive switcher if multiple."""
+        await interaction.response.defer()
+        target_user = user or interaction.user
+        certs = await db.get_user_certificates(target_user.id)
+
+        if not certs:
+            is_self = target_user.id == interaction.user.id
+            desc = (
+                "لم تحصل على أي شهادة معتمدة بعد! يمكنك خوض الاختبار عبر `/exam`.\n"
+                "You have not earned any verified certifications yet! Start with `/exam`."
+                if is_self
+                else f"لم يحصل {target_user.mention} على أي شهادة معتمدة بعد في هذا السيرفر.\n"
+                f"{target_user.mention} does not hold any verified certifications yet."
+            )
+            embed = discord.Embed(
+                title="📜 لم يتم العثور على شهادات | No Certificates Found",
+                description=desc,
+                color=discord.Color.gold(),
+            )
+            embed.set_footer(text="DevQuest Technical Certification")
+            await interaction.followup.send(embed=embed)
+            return
+
+        from legacy.core.exam_engine import ROLE_MAP, build_certificate_card_embed
+        from legacy.views.exam_views import CertificateSelectView
+
+        # Show the latest certificate first
+        latest_cert = certs[0]
+        role_key = latest_cert.get("role_key", "dev")
+        role_name = ROLE_MAP.get(role_key, role_key)
+        role_mention = None
+        if interaction.guild:
+            role_obj = discord.utils.get(interaction.guild.roles, name=role_name)
+            if role_obj:
+                role_mention = role_obj.mention
+
+        embed = build_certificate_card_embed(
+            user=target_user,
+            role_key=role_key,
+            score=latest_cert.get("score", 0),
+            total_q=latest_cert.get("total_questions", 0),
+            cert_code=latest_cert.get("cert_code") or "N/A",
+            timestamp=latest_cert.get("timestamp", 0.0),
+            guild=interaction.guild,
+            role_mention=role_mention,
+        )
+
+        view = None
+        if len(certs) > 1:
+            view = CertificateSelectView(
+                target_user=target_user,
+                certificates=certs,
+                guild=interaction.guild,
+            )
+
+        await interaction.followup.send(embed=embed, view=view)
+
+    @app_commands.command(
+        name="verify-cert",
+        description="التحقق من صحة ورمز الشهادة البرمجية / Verify Technical Certificate authenticity",
+    )
+    @app_commands.describe(
+        code="رمز التوثيق الخاص بالشهادة (مثل: #DQ-8921-BK) / Unique Certificate ID",
+    )
+    async def verify_cert_command(
+        self,
+        interaction: discord.Interaction,
+        code: str,
+    ) -> None:
+        """Verify certificate authenticity by its unique code."""
+        await interaction.response.defer()
+        clean_code = code.strip().lstrip("#").upper()
+
+        cert = await db.get_certificate_by_code(clean_code)
+        if not cert:
+            embed = discord.Embed(
+                title="❌ شهادة غير صالحة | Invalid Certificate",
+                description=(
+                    f"⚠️ لم يتم العثور على أي شهادة معتمدة بالرمز: `#{clean_code}`\n\n"
+                    f"💡 يرجى التأكد من كتابة رمز التوثيق بشكل صحيح.\n\n"
+                    f"⚠️ No certified credential was found matching ID: `#{clean_code}`\n"
+                    f"💡 Please double check the certificate code and try again."
+                ),
+                color=discord.Color.red(),
+            )
+            embed.set_footer(text="DevQuest Certificate Verification Authority")
+            await interaction.followup.send(embed=embed)
+            return
+
+        from legacy.core.exam_engine import ROLE_MAP, build_certificate_card_embed
+
+        user_id = cert.get("user_id", 0)
+        target_user = interaction.client.get_user(user_id)
+        if not target_user:
+            try:
+                target_user = await interaction.client.fetch_user(user_id)
+            except Exception:
+                target_user = None
+
+        role_key = cert.get("role_key", "dev")
+        role_name = ROLE_MAP.get(role_key, role_key)
+        role_mention = None
+        if interaction.guild:
+            role_obj = discord.utils.get(interaction.guild.roles, name=role_name)
+            if role_obj:
+                role_mention = role_obj.mention
+
+        class FallbackUser:
+            def __init__(self, uid: int):
+                self.id = uid
+                self.mention = f"<@{uid}>"
+                self.name = f"User#{uid}"
+                self.display_avatar = None
+                self.avatar = None
+
+        user_obj = target_user or FallbackUser(user_id)
+
+        embed = build_certificate_card_embed(
+            user=user_obj,
+            role_key=role_key,
+            score=cert.get("score", 0),
+            total_q=cert.get("total_questions", 0),
+            cert_code=cert.get("cert_code") or clean_code,
+            timestamp=cert.get("timestamp", 0.0),
+            guild=interaction.guild,
+            role_mention=role_mention,
+        )
+
+        await interaction.followup.send(
+            content=f"✅ **تم التحقق بنجاح من صحة الاعتماد! / Certificate Authenticated Successfully!**",
+            embed=embed,
+        )
+
 
 async def setup(bot: commands.Bot) -> None:
     await bot.add_cog(ExamCog(bot))
+
