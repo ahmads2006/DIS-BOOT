@@ -25,6 +25,7 @@ from core.sentry import capture_interaction_error
 from .constants import (
     BD_CHANNEL_ID,
     CUSTOM_ID_PREFIX_ANSWER,
+    CUSTOM_ID_PREFIX_REMIND,
     CUSTOM_ID_PREFIX_RESULT,
     CUSTOM_ID_PREFIX_TRANSLATE,
     EMBED_COLOR_CORRECT,
@@ -618,12 +619,91 @@ class DynamicResultButton(
                 pass
 
 
+class DynamicRemindButton(
+    DynamicItem[Button],
+    template=f"{CUSTOM_ID_PREFIX_REMIND}"
+):
+    """Persistent dynamic button for toggling daily streak reminders."""
+
+    def __init__(self, poll_id: int = 0, disabled: bool = False, row: Optional[int] = 1) -> None:
+        super().__init__(
+            Button(
+                label="🔔 التذكير • Remind Me",
+                style=discord.ButtonStyle.secondary,
+                custom_id=f"{CUSTOM_ID_PREFIX_REMIND}{poll_id}",
+                disabled=disabled,
+                row=row,
+            )
+        )
+        self.poll_id = poll_id
+
+
+    @classmethod
+    async def from_custom_id(
+        cls,
+        interaction: discord.Interaction,
+        item: Button,
+        match: re.Match[str],
+        /,
+    ) -> "DynamicRemindButton":
+        return cls(poll_id=int(match.group("poll_id")))
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        if not await _defer_ephemeral(interaction):
+            return
+
+        user_id = interaction.user.id
+        try:
+            new_status = await user_repo.toggle_reminder(user_id)
+            footer_icon = (
+                interaction.client.user.display_avatar.url
+                if interaction.client.user
+                else None
+            )
+
+            if new_status:
+                embed = discord.Embed(
+                    title="🔔 تم تفعيل التذكير اليومي • Reminder Activated",
+                    description=(
+                        "✨ **تم اشتراكك في التذكير اليومي بنجاح!**\n"
+                        "سيقوم البوت بإرسال تذكير لطيف لك في **الرسائل الخاصة (DM)** قبل إغلاق التحدي اليومي "
+                        "في حال لم تكن قد أجبت عليه بعد، للحفاظ على الـ Streak والنقاط! 🔥\n\n"
+                        "✨ **Daily streak reminder activated!**\n"
+                        "You will receive a DM notification before today's challenge closes if you haven't answered yet."
+                    ),
+                    color=discord.Color.green(),
+                )
+            else:
+                embed = discord.Embed(
+                    title="🔕 تم إيقاف التذكير اليومي • Reminder Disabled",
+                    description=(
+                        "تم إلغاء تفعيل التذكيرات اليومية.\n"
+                        "يمكنك إعادة تفعيلها في أي وقت بالضغط على الزر مجدداً أو باستخدام الأمر `/remind-me`.\n\n"
+                        "Daily streak reminders have been disabled for your account."
+                    ),
+                    color=discord.Color.gold(),
+                )
+
+            embed.set_footer(
+                text="DevQuest Engine • ByteDaily Smart Reminders",
+                icon_url=footer_icon,
+            )
+            await interaction.followup.send(embed=embed, ephemeral=True)
+        except Exception as e:
+            log.error(f"ByteDaily: Remind callback error for user {user_id}: {e}", exc_info=True)
+            capture_interaction_error(interaction, e)
+            await interaction.followup.send(
+                "⚠️ حدث خطأ أثناء تغيير إعدادات التذكير. | Failed to update reminder settings.",
+                ephemeral=True,
+            )
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # View Containers (Used when sending messages)
 # ─────────────────────────────────────────────────────────────────────────────
 
 class ByteDailyAnswerView(View):
-    """View container containing the 4 choice buttons + English translation button for a poll."""
+    """View container containing the 4 choice buttons + English translation button + Remind Me button for a poll."""
 
     def __init__(self, poll_id: int, disabled: bool = False) -> None:
         super().__init__(timeout=None)
@@ -636,6 +716,9 @@ class ByteDailyAnswerView(View):
             )
         self.add_item(
             DynamicTranslateButton(poll_id=poll_id, disabled=disabled, row=1)
+        )
+        self.add_item(
+            DynamicRemindButton(poll_id=poll_id, disabled=disabled, row=1)
         )
 
 
@@ -651,6 +734,9 @@ class ByteDailyEnglishAnswerView(View):
                     poll_id=poll_id, choice=choice, disabled=disabled, row=0
                 )
             )
+        self.add_item(
+            DynamicRemindButton(poll_id=poll_id, disabled=disabled, row=1)
+        )
 
 
 class ByteDailyResultView(View):
@@ -684,3 +770,32 @@ class ProfileInteractiveView(View):
         footer_icon = interaction.client.user.display_avatar.url if interaction.client.user else None
         embed = build_developer_profile_embed(target_user, stats, footer_icon_url=footer_icon)
         await interaction.edit_original_response(embed=embed, view=self)
+
+    @discord.ui.button(label="🔔 التذكير • Remind Me", style=discord.ButtonStyle.secondary, row=0)
+    async def toggle_remind(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        if not await _defer_ephemeral(interaction):
+            return
+
+        user_id = interaction.user.id
+        new_status = await user_repo.toggle_reminder(user_id)
+        footer_icon = interaction.client.user.display_avatar.url if interaction.client.user else None
+
+        if new_status:
+            embed = discord.Embed(
+                title="🔔 تم تفعيل التذكير اليومي • Reminder Activated",
+                description=(
+                    "✨ **تم تفعيل التذكيرات اليومية للـ Streak بنجاح!**\n"
+                    "سيصلك تذكير لطيف في الرسائل الخاصة قبل انتهاء التحدي اليومي لضمان عدم ضياع الـ Streak! 🔥"
+                ),
+                color=discord.Color.green(),
+            )
+        else:
+            embed = discord.Embed(
+                title="🔕 تم إيقاف التذكير اليومي • Reminder Disabled",
+                description="تم إلغاء تفعيل التذكيرات اليومية لحسابك.",
+                color=discord.Color.gold(),
+            )
+
+        embed.set_footer(text="DevQuest Engine • ByteDaily Reminders", icon_url=footer_icon)
+        await interaction.followup.send(embed=embed, ephemeral=True)
+

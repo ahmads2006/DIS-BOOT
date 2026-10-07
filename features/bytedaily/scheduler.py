@@ -52,6 +52,7 @@ from .views import (
     DynamicAnswerButton,
     DynamicResultButton,
     DynamicTranslateButton,
+    DynamicRemindButton,
 )
 
 # Re-check ends_at frequently so expiry / extend / reduce are honored promptly.
@@ -88,11 +89,13 @@ class ByteDailyScheduler:
                 DynamicAnswerButton,
                 DynamicResultButton,
                 DynamicTranslateButton,
+                DynamicRemindButton,
             )
             self._dynamic_items_registered = True
             log.info("ByteDaily: Registered DynamicItem classes globally with bot.")
         except Exception as e:
             log.error(f"ByteDaily: Failed to register dynamic items: {e}")
+
 
     def start(self) -> None:
         """Register dynamic items and start the ends_at watchdog loop."""
@@ -229,7 +232,10 @@ class ByteDailyScheduler:
                     f"({-delay:.1f}s overdue) — starting automated handover."
                 )
                 await self._rollover(int(open_poll["id"]))
+            elif delay <= 7200:  # 2 hours before closing
+                await self._dispatch_streak_reminders(open_poll)
             return
+
 
         # No open poll — finish any leftover closed poll, then post immediately
         closed_poll = await poll_service.get_closed_poll()
@@ -655,3 +661,43 @@ class ByteDailyScheduler:
         self.nudge()
         log.info(f"ByteDaily force-cycle complete: {summary}")
         return summary
+
+    async def _dispatch_streak_reminders(self, open_poll: Dict[str, Any]) -> None:
+        """Send gentle DM reminders to subscribed users who haven't answered today's challenge yet."""
+        poll_id = int(open_poll["id"])
+        if not hasattr(self, "_reminded_polls"):
+            self._reminded_polls = set()
+
+        if poll_id in self._reminded_polls:
+            return
+
+        subscribers = await user_repo.get_unanswered_reminder_subscribers(poll_id)
+        if not subscribers:
+            return
+
+        self._reminded_polls.add(poll_id)
+        log.info(f"[Scheduler] Dispatching streak reminders for poll #{poll_id} to {len(subscribers)} users.")
+
+        for user_id in subscribers:
+            try:
+                user = self.bot.get_user(user_id) or await self.bot.fetch_user(user_id)
+                if not user:
+                    continue
+                embed = discord.Embed(
+                    title="🔥 تذكير الـ Streak اليومي • Daily Challenge Reminder",
+                    description=(
+                        f"👋 **أهلاً {user.mention}!**\n\n"
+                        f"⏳ ينتهي **التحدي اليومي** قريباً في قسـم **ByteDaily**!\n"
+                        f"لا تنسَ المشاركة والإجابة لحفظ الـ Streak الخاص بك ومواصلة جمع النقاط والارتقاء في الترتيب! 🚀\n\n"
+                        f"⏳ **Don't lose your daily streak!**\n"
+                        f"Today's ByteDaily challenge is closing soon. Submit your answer now to keep your streak alive!"
+                    ),
+                    color=discord.Color.from_rgb(245, 158, 11),
+                )
+                footer_icon = self.bot.user.display_avatar.url if self.bot.user else None
+                embed.set_footer(text="DevQuest Engine • ByteDaily Smart Reminders", icon_url=footer_icon)
+                await user.send(embed=embed)
+                log.info(f"[Scheduler] Sent streak reminder DM to user {user_id}")
+            except Exception as e:
+                log.warning(f"[Scheduler] Could not send streak reminder DM to user {user_id}: {e}")
+

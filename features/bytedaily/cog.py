@@ -854,6 +854,54 @@ class ByteDailyCog(commands.Cog, name="ByteDaily"):
         """Show the caller's or target's personal ByteDaily stats card with badges."""
         await self.profile_cmd(interaction, user=user)
 
+    @app_commands.command(
+        name="remind-me",
+        description="تفعيل أو إيقاف التذكيرات اليومية لتحديات ByteDaily / Toggle daily streak DM reminders",
+    )
+    async def remind_me_cmd(self, interaction: discord.Interaction) -> None:
+        """Toggle daily streak DM reminders for the calling user."""
+        await interaction.response.defer(ephemeral=True)
+        user_id = interaction.user.id
+        try:
+            new_status = await user_repo.toggle_reminder(user_id)
+            footer_icon = self.bot.user.display_avatar.url if self.bot.user else None
+
+            if new_status:
+                embed = discord.Embed(
+                    title="🔔 تم تفعيل التذكير اليومي • Reminder Activated",
+                    description=(
+                        "✨ **تم اشتراكك في التذكير اليومي للـ Streak بنجاح!**\n"
+                        "سيقوم البوت بإرسال تذكير لطيف لك في **الرسائل الخاصة (DM)** قبل إغلاق التحدي اليومي "
+                        "في حال لم تكن قد أجبت عليه بعد، للحفاظ على الـ Streak والنقاط! 🔥\n\n"
+                        "✨ **Daily streak reminder activated!**\n"
+                        "You will receive a DM notification before today's challenge closes if you haven't answered yet."
+                    ),
+                    color=discord.Color.green(),
+                )
+            else:
+                embed = discord.Embed(
+                    title="🔕 تم إيقاف التذكير اليومي • Reminder Disabled",
+                    description=(
+                        "تم إلغاء تفعيل التذكيرات اليومية.\n"
+                        "يمكنك إعادة تفعيلها في أي وقت باكتتاب الأمر `/remind-me` مجدداً أو بالضغط على زر التذكير.\n\n"
+                        "Daily streak reminders have been disabled for your account."
+                    ),
+                    color=discord.Color.gold(),
+                )
+
+            embed.set_footer(
+                text="DevQuest Engine • ByteDaily Smart Reminders",
+                icon_url=footer_icon,
+            )
+            await interaction.followup.send(embed=embed, ephemeral=True)
+        except Exception as e:
+            log.error(f"ByteDaily: /remind-me error for user {user_id}: {e}", exc_info=True)
+            await interaction.followup.send(
+                embed=make_error_embed("خطأ • Error", f"فشل تغيير إعداد التذكير / Failed to toggle reminder: {e}"),
+                ephemeral=True,
+            )
+
+
 
 
 async def setup(bot: commands.Bot) -> None:

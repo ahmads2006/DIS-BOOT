@@ -62,6 +62,8 @@ CHOICE_EMOJIS = {
 CUSTOM_ID_PREFIX_ANSWER: str = "bd_answer_"
 CUSTOM_ID_PREFIX_RESULT: str = "bd_show_result_"
 CUSTOM_ID_PREFIX_TRANSLATE: str = "bd_translate_"
+CUSTOM_ID_PREFIX_REMIND: str = "bd_remind_toggle_"
+
 
 # ── Question selection ───────────────────────────────────────────────────────
 # History-based dedupe lives in bd_question_history (see question_service).

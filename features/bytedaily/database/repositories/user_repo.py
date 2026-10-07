@@ -407,7 +407,65 @@ async def get_user_detailed_stats(user_id: int) -> Optional[Dict[str, Any]]:
         "badges": badges,
         "top_categories": top_categories,
         "preferred_language": stats.get("preferred_language"),
+        "reminder_enabled": bool(stats.get("reminder_enabled", False)),
     }
+
+
+async def get_reminder_status(user_id: int) -> bool:
+    """Check if the user has enabled daily streak reminders."""
+    row = await get_by_id(user_id)
+    if not row:
+        return False
+    return bool(row.get("reminder_enabled", False))
+
+
+async def toggle_reminder(user_id: int) -> bool:
+    """
+    Toggle daily streak reminder setting for user.
+    Returns the new boolean status (True = enabled, False = disabled).
+    """
+    current = await get_reminder_status(user_id)
+    new_status = not current
+    try:
+        await bd_db.execute(
+            """
+            INSERT INTO bd_users (user_id, reminder_enabled, updated_at)
+            VALUES ($1, $2, now())
+            ON CONFLICT (user_id)
+            DO UPDATE SET reminder_enabled = EXCLUDED.reminder_enabled, updated_at = now()
+            """,
+            user_id,
+            new_status,
+        )
+        invalidate_user_cache(user_id)
+        log.info(f"ByteDaily: Set reminder_enabled={new_status} for user {user_id}.")
+        return new_status
+    except Exception as e:
+        log.error(f"ByteDaily: Failed to toggle reminder for user {user_id}: {e}", exc_info=True)
+        return current
+
+
+async def get_unanswered_reminder_subscribers(poll_id: int) -> List[int]:
+    """
+    Get user IDs who subscribed to reminders and have NOT submitted an answer for poll_id yet.
+    """
+    try:
+        rows = await bd_db.fetch(
+            """
+            SELECT u.user_id
+            FROM bd_users u
+            WHERE u.reminder_enabled IS TRUE
+              AND u.user_id NOT IN (
+                  SELECT a.user_id FROM bd_answers a WHERE a.poll_id = $1
+              )
+            """,
+            poll_id,
+        )
+        return [r["user_id"] for r in rows if r.get("user_id")]
+    except Exception as e:
+        log.error(f"ByteDaily: Error fetching unanswered reminder subscribers for poll #{poll_id}: {e}", exc_info=True)
+        return []
+
 
 
 
